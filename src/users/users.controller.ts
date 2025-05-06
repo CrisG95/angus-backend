@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Put } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Put, Get } from '@nestjs/common';
 import { UsersService } from '@users/users.service';
 import { CreateUserDto, UpdatePasswordDto } from '@users/dto/create-user.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -15,6 +15,12 @@ export class UsersController {
   @Roles('admin')
   async createUser(@Body() createUserDto: CreateUserDto) {
     return this.usersService.createUser(createUserDto);
+  }
+
+  @Get()
+  @Roles('admin')
+  async listUsers() {
+    return this.usersService.get();
   }
 
   @Put('password')
