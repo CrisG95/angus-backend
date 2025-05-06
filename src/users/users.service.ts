@@ -38,6 +38,10 @@ export class UsersService {
     return this.userModel.findById(id).exec();
   }
 
+  async get(): Promise<User[] | null> {
+    return this.userModel.find().select('-password').exec();
+  }
+
   async updateRefreshToken(userEmail: string, refreshToken: string | null) {
     await this.userModel
       .findOneAndUpdate({ email: userEmail }, { refreshToken })
