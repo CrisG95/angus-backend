@@ -1,0 +1,6 @@
+export enum PdfGenerationStatus {
+  ENQUEUED = 'ENQUEUED',
+  PENDING = 'PENDING',
+  GENERATED = 'GENERATED',
+  FAILED = 'FAILED',
+}
