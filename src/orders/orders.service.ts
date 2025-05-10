@@ -423,11 +423,11 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     newStatus: OrderStatusEnum,
     userEmail: string,
   ): Promise<OrderDocument> {
-    // 2) Trae la orden actual
+    // 1) Trae la orden actual
     const order = await this.findById(orderId, { lean: false });
     const fromStatus = order.status as OrderStatusEnum;
 
-    // 3) Verifica transición válida
+    // 2) Verifica transición válida
     const allowed = this.allowedTransitions[fromStatus] || [];
     if (!allowed.includes(newStatus)) {
       throw new BadRequestException(
@@ -435,22 +435,29 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       );
     }
 
-    // 4) Registra el cambio en history
+    // 3) Registra el cambio en history
     const changeEntry = {
       date: new Date(),
       user: userEmail,
       changes: [{ field: 'status', before: fromStatus, after: newStatus }],
     };
 
-    // 5) Aplica el update
-    const updated = await this.findOneAndUpdate(
-      { _id: orderId },
-      {
-        status: newStatus,
-        $push: { changeHistory: changeEntry },
-      },
-      { returnNew: true, lean: true },
-    );
+    // 4) Prepara update dinámico
+    const update: any = {
+      status: newStatus,
+      $push: { changeHistory: changeEntry },
+    };
+
+    if (newStatus === OrderStatusEnum.CANCELADO) {
+      update.paymentStatus = OrderPaymentStatusEnum.CANCELADO;
+      update.pdfStatus = PdfGenerationStatus.CANCELED;
+    }
+
+    // 5) Ejecuta update
+    const updated = await this.findOneAndUpdate({ _id: orderId }, update, {
+      returnNew: true,
+      lean: true,
+    });
 
     return updated;
   }
