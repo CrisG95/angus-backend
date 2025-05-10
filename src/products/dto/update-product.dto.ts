@@ -10,6 +10,9 @@ export class UpdateProductDto extends PartialType(CreateProductDto) {
   category?: string;
 
   @IsOptional()
+  subCategory?: string;
+
+  @IsOptional()
   codeBar?: string;
 
   @IsOptional()

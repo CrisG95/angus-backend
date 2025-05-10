@@ -19,6 +19,10 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  subCategory: string;
+
+  @IsString()
+  @IsOptional()
   codeBar?: string;
 
   @IsNumber()

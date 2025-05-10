@@ -27,6 +27,9 @@ export class Product {
   @Prop({ required: true, index: true })
   category: string;
 
+  @Prop({ required: false })
+  subCategory: string;
+
   @Prop({ unique: true, sparse: true })
   codeBar?: string;
 

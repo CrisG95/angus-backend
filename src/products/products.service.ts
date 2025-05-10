@@ -81,6 +81,7 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
     const {
       name,
       category,
+      subCategory,
       codeBar,
       minPrice,
       maxPrice,
@@ -96,6 +97,7 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
       {
         name: name ? new RegExp(name, 'i') : undefined,
         category,
+        subCategory,
         codeBar,
         brand,
         provider,
