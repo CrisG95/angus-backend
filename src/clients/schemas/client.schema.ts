@@ -47,6 +47,12 @@ export class Client {
   @Prop({ required: true })
   phoneNumber: string;
 
+  @Prop({ required: true })
+  businessName: string;
+
+  @Prop({ required: true })
+  commerceName: string;
+
   @Prop({ required: true, type: Object })
   address: Address;
 

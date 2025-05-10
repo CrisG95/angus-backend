@@ -40,6 +40,14 @@ export class CreateClientDto {
   @IsNotEmpty()
   cuit: string;
 
+  @IsString()
+  @IsNotEmpty()
+  businessName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  commerceName: string;
+
   @IsNumberString()
   @IsNotEmpty()
   ingresosBrutos: string;
