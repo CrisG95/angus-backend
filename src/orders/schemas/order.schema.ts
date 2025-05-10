@@ -64,9 +64,6 @@ export class Order {
   @Prop({ required: true, type: Number })
   subTotal: number;
 
-  @Prop({ required: true, type: Number })
-  ivaAmount: number;
-
   @Prop({ type: [{ type: Object }] })
   changeHistory?: ChangeHistory[];
 
