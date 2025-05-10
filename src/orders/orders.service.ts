@@ -23,10 +23,11 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   ListOrderDto,
+  CreateInvoiceFromOrderDto,
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
-import { ClientDocument } from '@clients/schemas/client.schema';
+//import { ClientDocument } from '@clients/schemas/client.schema';
 import {
   OrderPaymentStatusEnum,
   OrderStatusEnum,
@@ -105,7 +106,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         for (const itemDto of dto.items) {
           const product = productMap.get(itemDto.productId);
 
-          const unitPrice = product.price; // Precio base del producto
+          const unitPrice = product.priceSell; // Precio base del producto
 
           orderItems.push({
             productId: new Types.ObjectId(itemDto.productId), // Asegurar ObjectId
@@ -143,10 +144,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           ////////////
         }
 
-        // 5. Calcular IVA y Total Final
-        const ivaRate = 0.21;
-        const ivaAmount = roundDecimal(subTotal * ivaRate);
-        const totalAmount = roundDecimal(subTotal + ivaAmount);
+        const totalAmount = roundDecimal(subTotal);
 
         // 6. Preparar Datos Finales de la Orden
         const initialChange = {
@@ -162,7 +160,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           paymentStatus: OrderPaymentStatusEnum.NO_FACTURADO, // Estado de pago inicial
           changeHistory: [initialChange],
           subTotal: roundDecimal(subTotal),
-          ivaAmount,
           totalAmount,
         };
 
@@ -199,7 +196,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           select: 'ivaCondition',
         },
       });
-      const client = order.clientId as unknown as ClientDocument;
+      //const client = order.clientId as unknown as ClientDocument;
 
       // 2) Validar estado
       if (
@@ -249,7 +246,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             (o) => o.productId.toString() === item.productId,
           );
           const price =
-            orig?.unitPrice ?? productMap.get(item.productId)!.price;
+            orig?.unitPrice ?? productMap.get(item.productId)!.priceSell;
           newSubTotal += item.quantity * price;
           return {
             productId: new Types.ObjectId(item.productId),
@@ -259,10 +256,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
       }
 
-      // 4) Calcular IVA y total
-      const ivaRate = client.ivaCondition === 'EXENTO' ? 0 : 0.21;
-      const newIva = roundDecimal(newSubTotal * ivaRate);
-      const newTotal = roundDecimal(newSubTotal + newIva);
+      const newTotal = roundDecimal(newSubTotal);
 
       // 5) Generar historial de cambios
       const changes = [];
@@ -302,7 +296,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       const updateOps: any = {
         items: newItems,
         subTotal: roundDecimal(newSubTotal),
-        ivaAmount: newIva,
         totalAmount: newTotal,
         ...dto, // status, paymentStatus, invoiced si venían en el DTO
       };
@@ -582,8 +575,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     orderId,
     suggestionRate,
     paymentType,
+    discount = 0,
+    increase = 0,
     user,
-  }): Promise<any> {
+  }: CreateInvoiceFromOrderDto & { user: string }): Promise<any> {
     const session = await this.connection.startSession();
     let order: OrderDocument | null = null;
 
@@ -625,19 +620,26 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             name: string;
           };
 
+          const increasedPrice = i.unitPrice * (1 + increase / 100);
           const suggestedPrice = Number(
-            (i.unitPrice * (1 + suggestionRate / 100)).toFixed(2),
+            (increasedPrice * (1 + suggestionRate / 100)).toFixed(2),
           );
-          const total = Number((i.unitPrice * i.quantity).toFixed(2));
+          const total = Number((increasedPrice * i.quantity).toFixed(2));
+
           return {
             productId: product._id,
             name: product.name,
             quantity: i.quantity,
-            unitPrice: i.unitPrice,
+            unitPrice: increasedPrice,
             suggestedPrice,
             total,
           };
         });
+
+        const subTotal = items.reduce((acc, item) => acc + item.total, 0);
+        const discountAmount = Number(((subTotal * discount) / 100).toFixed(2));
+        const discountedSubTotal = subTotal - discountAmount;
+        const totalAmount = Number(discountedSubTotal.toFixed(2));
 
         const client = order.clientId as unknown as {
           _id: Types.ObjectId;
@@ -651,9 +653,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           clientName: client.name,
           items,
           suggestionRate,
-          subTotal: order.subTotal,
-          ivaAmount: order.ivaAmount,
-          total: order.totalAmount,
+          subTotal,
+          discount: discountAmount,
+          total: totalAmount,
           createdAt: new Date(),
           saleCondition: paymentType,
           invoiceNumber,
@@ -672,6 +674,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         order.paymentStatus = OrderPaymentStatusEnum.PENDIENTE_PAGO;
         order.invoiceNumber = invoiceNumber;
         order.status = OrderStatusEnum.FACTURADO;
+        order.subTotal = subTotal;
+        order.totalAmount = totalAmount;
+        order.increasePercentaje = increase;
+        order.discountPercentaje = discount;
         order.changeHistory.push({
           date: new Date(),
           user,

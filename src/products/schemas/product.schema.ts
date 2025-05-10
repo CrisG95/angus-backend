@@ -31,13 +31,10 @@ export class Product {
   codeBar?: string;
 
   @Prop({ required: true })
-  price: number;
+  priceBuy: number;
 
   @Prop({ required: true })
-  priceIva: number;
-
-  @Prop({ required: true })
-  iva: number;
+  priceSell: number;
 
   @Prop({ required: true, default: 0 })
   stock: number;

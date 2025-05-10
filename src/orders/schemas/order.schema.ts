@@ -87,6 +87,16 @@ export class Order {
     required: false,
   })
   invoiceNumber: string;
+
+  @Prop({
+    required: false,
+  })
+  increasePercentaje: number;
+
+  @Prop({
+    required: false,
+  })
+  discountPercentaje: number;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

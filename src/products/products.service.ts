@@ -99,7 +99,7 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
         codeBar,
         brand,
         provider,
-        price:
+        priceSell:
           minPrice !== undefined || maxPrice !== undefined
             ? {
                 ...(minPrice !== undefined && { $gte: minPrice }),
