@@ -254,7 +254,7 @@ export async function generateInvoicePDF(invoice: any): Promise<Buffer> {
 
   if (subTotal !== undefined)
     drawTotalLine('SUBTOTAL:', `$${subTotal.toFixed(2)}`);
-  if (discount !== undefined)
+  if (discount !== undefined && discount > 0)
     drawTotalLine('DESCUENTO:', `$${discount.toFixed(2)}`);
   if (total !== undefined)
     drawTotalLine('TOTAL:', `$${total.toFixed(2)}`, true);

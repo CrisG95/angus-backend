@@ -622,7 +622,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
           const increasedPrice = i.unitPrice * (1 + increase / 100);
           const suggestedPrice = Number(
-            (increasedPrice * (1 + suggestionRate / 100)).toFixed(2),
+            suggestionRate
+              ? (increasedPrice * (1 + suggestionRate / 100)).toFixed(2)
+              : 0,
           );
           const total = Number((increasedPrice * i.quantity).toFixed(2));
 
