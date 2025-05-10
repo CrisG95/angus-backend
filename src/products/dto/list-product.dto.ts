@@ -12,6 +12,10 @@ export class ListProductsDto {
 
   @IsOptional()
   @IsString()
+  subCategory?: string;
+
+  @IsOptional()
+  @IsString()
   codeBar?: string;
 
   @IsOptional()

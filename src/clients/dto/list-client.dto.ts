@@ -25,6 +25,14 @@ export class ListClientsDto {
   cuit?: string; // Filtrar por CUIT
 
   @IsOptional()
+  @IsString()
+  businessName?: string; // Filtrar por RAZON SOCIAL
+
+  @IsOptional()
+  @IsString()
+  commerceName?: string; // Filtrar por NOMBRE DE COMERCIO
+
+  @IsOptional()
   @IsEnum(IvaCondition, {
     message: `La condición de IVA debe ser uno de los isguientes valores: ${Object.values(IvaCondition).join(', ')}`,
   })

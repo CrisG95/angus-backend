@@ -5,7 +5,6 @@ import {
   IsNumber,
   IsPositive,
   Min,
-  Max,
   IsInt,
 } from 'class-validator';
 
@@ -20,20 +19,19 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  subCategory: string;
+
+  @IsString()
+  @IsOptional()
   codeBar?: string;
 
   @IsNumber()
   @IsPositive()
-  price: number;
+  priceBuy: number;
 
   @IsNumber()
   @IsPositive()
-  priceIva: number;
-
-  @IsInt()
-  @Min(0)
-  @Max(100) // Para asegurar que el IVA es un porcentaje válido
-  iva: number;
+  priceSell: number;
 
   @IsInt()
   @Min(0)

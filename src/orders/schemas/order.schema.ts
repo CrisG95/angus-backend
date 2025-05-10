@@ -64,9 +64,6 @@ export class Order {
   @Prop({ required: true, type: Number })
   subTotal: number;
 
-  @Prop({ required: true, type: Number })
-  ivaAmount: number;
-
   @Prop({ type: [{ type: Object }] })
   changeHistory?: ChangeHistory[];
 
@@ -87,6 +84,21 @@ export class Order {
     required: false,
   })
   invoiceNumber: string;
+
+  @Prop({
+    required: false,
+  })
+  increasePercentaje: number;
+
+  @Prop({
+    required: false,
+  })
+  discountPercentaje: number;
+
+  @Prop({
+    required: false,
+  })
+  discountAmount: number;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

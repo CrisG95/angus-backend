@@ -3,4 +3,5 @@ export enum PdfGenerationStatus {
   PENDING = 'PENDING',
   GENERATED = 'GENERATED',
   FAILED = 'FAILED',
+  CANCELED = 'CANCELED',
 }

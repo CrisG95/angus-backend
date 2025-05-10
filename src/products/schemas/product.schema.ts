@@ -27,17 +27,17 @@ export class Product {
   @Prop({ required: true, index: true })
   category: string;
 
+  @Prop({ required: false })
+  subCategory: string;
+
   @Prop({ unique: true, sparse: true })
   codeBar?: string;
 
   @Prop({ required: true })
-  price: number;
+  priceBuy: number;
 
   @Prop({ required: true })
-  priceIva: number;
-
-  @Prop({ required: true })
-  iva: number;
+  priceSell: number;
 
   @Prop({ required: true, default: 0 })
   stock: number;

@@ -10,16 +10,16 @@ export class UpdateProductDto extends PartialType(CreateProductDto) {
   category?: string;
 
   @IsOptional()
+  subCategory?: string;
+
+  @IsOptional()
   codeBar?: string;
 
   @IsOptional()
-  price?: number;
+  priceBuy?: number;
 
   @IsOptional()
-  priceIva?: number;
-
-  @IsOptional()
-  iva?: number;
+  priceSell?: number;
 
   @IsOptional()
   stock?: number;
