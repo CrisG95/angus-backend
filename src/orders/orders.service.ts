@@ -678,7 +678,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         order.totalAmount = totalAmount;
         order.increasePercentaje = increase;
         order.discountPercentaje = discount;
-        order.discountAmount = discountedSubTotal;
+        order.discountAmount = discountAmount;
         order.changeHistory.push({
           date: new Date(),
           user,

@@ -15,11 +15,11 @@ export async function generateInvoicePDF(invoice: any): Promise<Buffer> {
     clientName,
     items,
     subTotal,
-    ivaAmount,
     total,
     createdAt,
     invoiceNumber,
     saleCondition,
+    discount,
   } = invoice;
 
   const dateObject = new Date(createdAt);
@@ -254,8 +254,8 @@ export async function generateInvoicePDF(invoice: any): Promise<Buffer> {
 
   if (subTotal !== undefined)
     drawTotalLine('SUBTOTAL:', `$${subTotal.toFixed(2)}`);
-  if (ivaAmount && ivaAmount > 0)
-    drawTotalLine('IVA (21%):', `$${ivaAmount.toFixed(2)}`);
+  if (discount !== undefined)
+    drawTotalLine('DESCUENTO:', `$${subTotal.toFixed(2)}`);
   if (total !== undefined)
     drawTotalLine('TOTAL:', `$${total.toFixed(2)}`, true);
 
