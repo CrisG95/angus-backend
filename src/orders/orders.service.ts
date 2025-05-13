@@ -12,6 +12,7 @@ import {
   ClientSession,
   Types,
   FilterQuery,
+  PipelineStage,
   //PopulateOptions,
   //SortOrder,
 } from 'mongoose';
@@ -591,6 +592,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
                 changeHistory: 0,
                 __v: 0,
                 statusOrder: 0,
+                'clientId.email': 1,
+                'clientId.name': 1,
+                'clientId.phoneNumber': 1,
               },
             },
           ],
@@ -869,54 +873,129 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         break;
     }
 
-    const orders = (await this.orderModel
-      .find({
-        status: 'FACTURADO',
-        createdAt: { $gte: start, $lt: end },
-      })
-      .populate({ path: 'clientId', select: 'name' })
-      .lean()) as any[];
-
-    const report = {
-      period: period || 'custom',
-      range: { start, end },
-      totalOrders: orders.length,
-      totalAmount: 0,
-      pagos: {
-        PAGADO: { count: 0, total: 0, invoices: [] },
-        PENDIENTE_PAGO: { count: 0, total: 0, invoices: [] },
-        CANCELADO: { count: 0, total: 0, invoices: [] },
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          createdAt: { $gte: start, $lt: end },
+        },
       },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'clientId',
+          foreignField: '_id',
+          as: 'client',
+        },
+      },
+      { $unwind: { path: '$client', preserveNullAndEmptyArrays: false } },
+      {
+        $facet: {
+          byStatus: [
+            {
+              $group: {
+                _id: '$status',
+                count: { $sum: 1 },
+              },
+            },
+          ],
+          byPaymentStatus: [
+            {
+              $match: { status: 'FACTURADO' },
+            },
+            {
+              $group: {
+                _id: '$paymentStatus',
+                count: { $sum: 1 },
+                total: { $sum: '$totalAmount' },
+                invoices: {
+                  $push: {
+                    pdfUrl: '$pdfUrl',
+                    total: '$totalAmount',
+                    createdAt: '$createdAt',
+                    clientName: '$client.name',
+                    invoiceNumber: '$invoiceNumber',
+                  },
+                },
+              },
+            },
+          ],
+          topClients: [
+            {
+              $match: { status: 'FACTURADO' },
+            },
+            {
+              $group: {
+                _id: '$client._id',
+                name: { $first: '$client.name' },
+                totalAmount: { $sum: '$totalAmount' },
+                ordersCount: { $sum: 1 },
+              },
+            },
+            { $sort: { totalAmount: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [result] = await this.orderModel.aggregate(pipeline).exec();
+
+    // Construimos statusSummary
+    const statusSummary: Record<string, number> = {
+      EN_PROCESO: 0,
+      EN_PREPARACION: 0,
+      ENTREGADO: 0,
+      FACTURADO: 0,
+      CANCELADO: 0,
+    };
+    for (const item of result.byStatus) {
+      statusSummary[item._id] = item.count;
+    }
+
+    // Construimos pagos y financialSummary
+    const pagos = {
+      PAGADO: { count: 0, total: 0, invoices: [] },
+      PENDIENTE_PAGO: { count: 0, total: 0, invoices: [] },
+      CANCELADO: { count: 0, total: 0, invoices: [] },
     };
 
-    for (const order of orders) {
-      const estado = order.paymentStatus;
-      if (!report.pagos[estado]) {
-        report.pagos[estado] = { count: 0, total: 0, invoices: [] };
-      }
-      report.pagos[estado].count++;
-      report.pagos[estado].total = Number(
-        (report.pagos[estado].total + order.totalAmount).toFixed(2),
-      );
-      report.totalAmount = Number(
-        (report.totalAmount + order.totalAmount).toFixed(2),
-      );
-      report.pagos[estado].invoices.push({
-        pdfUrl: order.pdfUrl,
-        total: Number(order.totalAmount.toFixed(2)),
-        createdAt: order.createdAt,
-        clientName: order.clientId?.name || 'Consumidor Final',
-        invoiceNumber: order.invoiceNumber,
-      });
+    let totalAmount = 0;
+
+    for (const p of result.byPaymentStatus) {
+      pagos[p._id] = {
+        count: p.count,
+        total: Number(p.total.toFixed(2)),
+        invoices: (p.invoices || [])
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )
+          .map((i) => ({
+            ...i,
+            total: Number(i.total.toFixed(2)),
+          })),
+      };
+      totalAmount += p.total;
     }
 
-    for (const estado in report.pagos) {
-      report.pagos[estado].invoices.sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    }
+    const financialSummary = {
+      facturado: Number(totalAmount.toFixed(2)),
+      pagado: pagos.PAGADO?.total || 0,
+      pendientePago: pagos.PENDIENTE_PAGO?.total || 0,
+    };
 
-    return report;
+    return {
+      period: period || 'custom',
+      range: { start, end },
+      totalOrders: Object.values(statusSummary).reduce((sum, v) => sum + v, 0),
+      statusSummary,
+      financialSummary,
+      pagos,
+      topClients: result.topClients.map((c) => ({
+        name: c.name,
+        totalAmount: Number(c.totalAmount.toFixed(2)),
+        ordersCount: c.ordersCount,
+      })),
+    };
   }
 }
