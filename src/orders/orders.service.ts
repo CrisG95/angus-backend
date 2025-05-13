@@ -12,8 +12,8 @@ import {
   ClientSession,
   Types,
   FilterQuery,
-  PopulateOptions,
-  SortOrder,
+  //PopulateOptions,
+  //SortOrder,
 } from 'mongoose';
 import { isNil } from 'lodash';
 
@@ -32,7 +32,7 @@ import {
   OrderPaymentStatusEnum,
   OrderStatusEnum,
 } from '@orders/enums/order-status.enum';
-import { OrderSortableFieldsEnum } from '@orders/enums/order-sortable-fields.enum';
+//import { OrderSortableFieldsEnum } from '@orders/enums/order-sortable-fields.enum';
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 import { roundDecimal } from '@common/functions/round.function';
 
@@ -512,6 +512,119 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       limit = 20,
       clientId,
       status,
+      paymentStatus,
+      dateFrom,
+      dateTo,
+      sortBy,
+      sortOrder = 'desc',
+    } = filters;
+
+    const match: FilterQuery<OrderDocument> = {};
+
+    if (clientId) match.clientId = clientId;
+    if (status) match.status = status;
+    if (paymentStatus) match.paymentStatus = paymentStatus;
+
+    const dateConditions: any = {};
+    if (dateFrom) dateConditions.$gte = new Date(dateFrom);
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      dateConditions.$lte = end;
+    }
+    if (!isNil(dateConditions.$gte) || !isNil(dateConditions.$lte)) {
+      match.createdAt = dateConditions;
+    }
+
+    // Mapa de prioridad de status
+    const statusOrder: Record<string, number> = {
+      EN_PROCESO: 1,
+      EN_PREPARACION: 2,
+      ENTREGADO: 3,
+      FACTURADO: 4,
+      CANCELADO: 5,
+    };
+
+    const sortStage = status
+      ? { [sortBy]: sortOrder === 'desc' ? -1 : 1 }
+      : {
+          statusOrder: 1,
+          createdAt: -1, // orden secundario
+        };
+
+    const pipeline: any[] = [
+      { $match: match },
+      {
+        $addFields: {
+          statusOrder: {
+            $switch: {
+              branches: Object.entries(statusOrder).map(([key, value]) => ({
+                case: { $eq: ['$status', key] },
+                then: value,
+              })),
+              default: 999,
+            },
+          },
+        },
+      },
+      { $sort: sortStage },
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: 'clients',
+                localField: 'clientId',
+                foreignField: '_id',
+                as: 'clientId',
+              },
+            },
+            {
+              $unwind: { path: '$clientId', preserveNullAndEmptyArrays: true },
+            },
+            {
+              $project: {
+                items: 0,
+                changeHistory: 0,
+                __v: 0,
+                statusOrder: 0,
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = await this.orderModel.aggregate(pipeline).exec();
+
+    const metadata = result[0]?.metadata[0] || { total: 0 };
+    const totalDocuments = metadata.total;
+    const totalPages = Math.ceil(totalDocuments / limit);
+
+    return {
+      data: result[0].data,
+      page,
+      limit,
+      totalDocuments,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+  }
+
+  /*
+  async findAll(
+    filters: ListOrderDto,
+  ): Promise<PaginatedResult<OrderDocument>> {
+    const {
+      page = 1,
+      limit = 20,
+      clientId,
+      status,
+      paymentStatus,
       dateFrom,
       dateTo,
       sortBy = OrderSortableFieldsEnum.createdAt,
@@ -527,6 +640,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     filter.status = status
       ? status
       : { $in: [OrderStatusEnum.EN_PROCESO, OrderStatusEnum.EN_PREPARACION] };
+
+    filter.paymentStatus = paymentStatus;
 
     const dateConditions: any = {};
 
@@ -561,7 +676,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       populate: clientPopulate,
     });
   }
-
+*/
   async findOrderByIdWithClient(orderId: string): Promise<any> {
     return this.findById(orderId, {
       lean: true,
