@@ -40,6 +40,7 @@ import { roundDecimal } from '@common/functions/round.function';
 import { ProductsService } from '@products/products.service';
 import { ClientsService } from '@clients/clients.service';
 import { BaseCrudService } from '@common/services/base-crud.service';
+import { SendGridService } from '@SendGrid/sendgrid.service';
 
 import { generateChangeHistory } from '@helpers/history.helper';
 import { ERROR_MESSAGES } from '@common/errors/error-messages';
@@ -62,6 +63,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     private readonly s3Service: S3Service,
     private readonly pdfService: PDFService,
     private readonly invoiceCounterService: InvoiceCounterService,
+    private readonly sendGridService: SendGridService,
   ) {
     super(orderModel);
   }
@@ -722,7 +724,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         order = await this.orderModel
           .findById(orderId)
           .populate([
-            { path: 'clientId', select: 'name' },
+            { path: 'clientId', select: 'name, email' },
             { path: 'items.productId', select: 'name' },
           ])
           .session(currentSession);
@@ -781,6 +783,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         const client = order.clientId as unknown as {
           _id: Types.ObjectId;
           name: string;
+          email: string;
         };
 
         const invoiceNumber =
@@ -829,6 +832,12 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
 
         await order.save({ session: currentSession });
+
+        await this.sendGridService.sendInvoiceEmail(
+          client.email,
+          client.name, // o razonSocial
+          pdfUrl,
+        );
       });
 
       return order;

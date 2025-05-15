@@ -18,7 +18,8 @@
       "@clients/*": ["src/clients/*"],
       "@orders/*": ["src/orders/*"],
       "@products/*": ["src/products/*"],
-      "@invoices/*": ["src/invoices/*"]
+      "@invoices/*": ["src/invoices/*"],
+      "@SendGrid/*": ["src/email/*"]
     },
     "incremental": true,
     "skipLibCheck": true,
