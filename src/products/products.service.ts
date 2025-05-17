@@ -5,6 +5,10 @@ import { omitBy, isNil } from 'lodash';
 
 import { Product, ProductDocument } from '@products/schemas/product.schema';
 import {
+  ProductCategory,
+  ProductCategoryDocument,
+} from '@products/schemas/product.category.schema';
+import {
   CreateProductDto,
   UpdateProductDto,
   ListProductsDto,
@@ -19,6 +23,8 @@ import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 export class ProductsService extends BaseCrudService<ProductDocument> {
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
+    @InjectModel(ProductCategory.name)
+    private productCategoryModel: Model<ProductCategoryDocument>,
   ) {
     super(productModel);
   }
@@ -126,5 +132,9 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
       sort: { name: 1 } as Record<string, SortOrder>,
       projection: '-changeHistory -__v',
     });
+  }
+
+  async getProductCategories(): Promise<ProductCategoryDocument[]> {
+    return this.productCategoryModel.find({ status: 'active' });
   }
 }
