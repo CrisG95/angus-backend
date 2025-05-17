@@ -56,7 +56,7 @@ export class SendGridService {
       attachments: [
         {
           content: await this.downloadPdfAsBase64(pdfUrl),
-          filename: 'Factura.pdf',
+          filename: `Comprobante-${dynamicData.invoiceNumber}.pdf`,
           type: 'application/pdf',
           disposition: 'attachment',
         },

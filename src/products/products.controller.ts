@@ -56,5 +56,4 @@ export class ProductsController {
   async getProductById(@Param('id') id: string) {
     return this.productsService.findById(id);
   }
-
 }
