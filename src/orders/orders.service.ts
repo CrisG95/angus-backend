@@ -13,8 +13,6 @@ import {
   Types,
   FilterQuery,
   PipelineStage,
-  //PopulateOptions,
-  //SortOrder,
 } from 'mongoose';
 import { isNil } from 'lodash';
 
@@ -29,12 +27,10 @@ import {
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
-//import { ClientDocument } from '@clients/schemas/client.schema';
 import {
   OrderPaymentStatusEnum,
   OrderStatusEnum,
 } from '@orders/enums/order-status.enum';
-//import { OrderSortableFieldsEnum } from '@orders/enums/order-sortable-fields.enum';
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 import { roundDecimal } from '@common/functions/round.function';
 
@@ -319,7 +315,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       return updated;
     });
   }
-  // --- calculateStockAdjustments (modificado para aceptar productMap) ---
+
   private calculateStockAdjustments(
     originalItemsMap: Map<string, number>, // productId -> oldQuantity
     newItemsMap: Map<string, number>, // productId -> newQuantity
@@ -342,7 +338,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     return adjustments;
   }
 
-  // --- applyStockAdjustments (modificado para aceptar productMap) ---
   private async applyStockAdjustments(
     adjustments: Map<string, number>,
     session: ClientSession,
@@ -631,68 +626,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     };
   }
 
-  /*
-  async findAll(
-    filters: ListOrderDto,
-  ): Promise<PaginatedResult<OrderDocument>> {
-    const {
-      page = 1,
-      limit = 20,
-      clientId,
-      status,
-      paymentStatus,
-      dateFrom,
-      dateTo,
-      sortBy = OrderSortableFieldsEnum.createdAt,
-      sortOrder = 'desc',
-    } = filters;
-
-    const filter: FilterQuery<OrderDocument> = {};
-
-    if (clientId) {
-      filter.clientId = clientId;
-    }
-
-    filter.status = status
-      ? status
-      : { $in: [OrderStatusEnum.EN_PROCESO, OrderStatusEnum.EN_PREPARACION] };
-
-    filter.paymentStatus = paymentStatus;
-
-    const dateConditions: any = {};
-
-    if (dateFrom) {
-      dateConditions.$gte = new Date(dateFrom);
-    }
-    if (dateTo) {
-      const end = new Date(dateTo);
-      end.setHours(23, 59, 59, 999);
-      dateConditions.$lte = end;
-    }
-    if (!isNil(dateConditions.$gte) || !isNil(dateConditions.$lte)) {
-      filter.createdAt = dateConditions;
-    }
-
-    const direction: SortOrder = sortOrder === 'desc' ? -1 : 1;
-    const sortOptions: Record<string, SortOrder> = {
-      [sortBy]: direction,
-    };
-
-    const clientPopulate: PopulateOptions = {
-      path: 'clientId',
-      select: 'name email phoneNumber',
-    };
-
-    return this.paginate(filter, {
-      page,
-      limit,
-      lean: true,
-      sort: sortOptions,
-      projection: '-items -changeHistory -__v',
-      populate: clientPopulate,
-    });
-  }
-*/
   async findOrderByIdWithClient(orderId: string): Promise<any> {
     return this.findById(orderId, {
       lean: true,
@@ -833,12 +766,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
 
         await order.save({ session: currentSession });
-
-        //await this.sendGridService.sendInvoiceEmail(
-        //  client.email,
-        //  client.name, // o razonSocial
-        //  pdfUrl,
-        //);
       });
 
       return order;
