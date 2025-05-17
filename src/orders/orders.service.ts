@@ -894,7 +894,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       };
     } catch (error) {
       this.logger.error('Ocurrió un error, intentelo nuevamente', error.stack);
-      throw error;
+      throw new Error('Falta el template ID de factura');
     }
   }
   async getInvoiceReport(filters: ReportDto) {
