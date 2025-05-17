@@ -869,16 +869,14 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           },
         ],
       })) as any;
-      console.log('🚀 ~ OrdersService ~ order:', order);
 
       const invoiceDataToSend = {
         first_name: order.clientId.name,
         invoiceNumber: order.invoiceNumber,
         subTotal: order.subTotal,
         discount: order.discountAmount ?? 0,
-        total: order.totalAmoun,
+        total: order.totalAmount,
       };
-      console.log('🚀 ~ OrdersService ~ invoiceDataToSend:', invoiceDataToSend);
 
       await this.sendGridService.sendInvoiceWithTemplate(
         order.clientId.email,
