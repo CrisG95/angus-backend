@@ -18,6 +18,7 @@ import { generateChangeHistory } from '@helpers/history.helper';
 import { BaseCrudService } from '@common/services/base-crud.service';
 
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
+import { toUppercaseStrings } from '@common/functions/toUpperCase.function';
 
 @Injectable()
 export class ProductsService extends BaseCrudService<ProductDocument> {
@@ -34,6 +35,8 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
     user: string,
   ): Promise<Product> {
     try {
+      const uppercasedDto = toUppercaseStrings(createProductDto);
+
       const changeHistory = [
         {
           date: new Date(),
@@ -42,7 +45,7 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
         },
       ];
       const newProduct = new this.productModel({
-        ...createProductDto,
+        ...uppercasedDto,
         changeHistory,
       });
       return await newProduct.save();
