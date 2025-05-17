@@ -63,7 +63,8 @@ export class SendGridService {
       ],
     };
 
-    await sgMail.send(msg);
+    const response = await sgMail.send(msg);
+    console.log('🚀 ~ SendGridService ~ response:', response);
   }
 
   private async downloadPdfAsBase64(pdfUrl: string): Promise<string> {
