@@ -869,6 +869,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           },
         ],
       }) as any;
+      console.log('🚀 ~ OrdersService ~ order:', order);
 
       const invoiceDataToSend = {
         first_name: order.clientId.name,
