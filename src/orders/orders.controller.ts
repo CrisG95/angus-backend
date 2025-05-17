@@ -26,6 +26,7 @@ import {
   UpdateOrderStatusDto,
   UpdatePaymentStatusDto,
   CreateInvoiceFromOrderDto,
+  InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ValidateObjectIdPipe } from '@common/pipes/validate-object-id.pipes';
@@ -82,6 +83,14 @@ export class OrdersController {
     @User() user: UserPayload,
   ) {
     return this.ordersService.createInvoice({ ...dto, user: user.email });
+  }
+
+  @Post('invoice/email')
+  async sendInvoiceByEmail(
+    @Body() dto: InvoiceEmailDto,
+    @User() user: UserPayload,
+  ) {
+    return this.ordersService.sendInvoiceEmail({ ...dto, user: user.email });
   }
 
   @Get('invoice/report')

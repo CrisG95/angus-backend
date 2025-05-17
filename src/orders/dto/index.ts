@@ -4,6 +4,7 @@ import { ListOrderDto } from './list-order.dto';
 import { UpdateOrderStatusDto } from './update-order-status.dto';
 import { UpdatePaymentStatusDto } from './update-payment-status.dto';
 import { CreateInvoiceFromOrderDto } from './create-invoice.dto';
+import { InvoiceEmailDto } from './send-invoice-email.dto';
 export {
   CreateOrderDto,
   UpdateOrderDto,
@@ -11,4 +12,5 @@ export {
   UpdateOrderStatusDto,
   UpdatePaymentStatusDto,
   CreateInvoiceFromOrderDto,
+  InvoiceEmailDto,
 };

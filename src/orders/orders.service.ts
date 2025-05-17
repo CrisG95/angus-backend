@@ -25,6 +25,7 @@ import {
   UpdateOrderDto,
   ListOrderDto,
   CreateInvoiceFromOrderDto,
+  InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
@@ -724,7 +725,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         order = await this.orderModel
           .findById(orderId)
           .populate([
-            { path: 'clientId', select: 'name, email' },
+            { path: 'clientId', select: 'name email' },
             { path: 'items.productId', select: 'name' },
           ])
           .session(currentSession);
@@ -833,11 +834,11 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
         await order.save({ session: currentSession });
 
-        await this.sendGridService.sendInvoiceEmail(
-          client.email,
-          client.name, // o razonSocial
-          pdfUrl,
-        );
+        //await this.sendGridService.sendInvoiceEmail(
+        //  client.email,
+        //  client.name, // o razonSocial
+        //  pdfUrl,
+        //);
       });
 
       return order;
@@ -855,6 +856,46 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
 
+  async sendInvoiceEmail({
+    orderId,
+  }: InvoiceEmailDto & { user: string }): Promise<any> {
+    try {
+      const order = this.findById(orderId, {
+        lean: true,
+        populate: [
+          {
+            path: 'clientId',
+            select: 'name email',
+          },
+        ],
+      }) as any;
+
+      const invoiceDataToSend = {
+        first_name: order.clientId.name,
+        invoiceNumber: order.invoiceNumber,
+        subTotal: order.subTotal,
+        discount: order.discountAmount ?? 0,
+        total: order.totalAmoun,
+      };
+      console.log('🚀 ~ OrdersService ~ invoiceDataToSend:', invoiceDataToSend);
+
+      await this.sendGridService.sendInvoiceWithTemplate(
+        order.clientId.email,
+        {
+          ...invoiceDataToSend,
+        },
+        order.pdfUrl,
+      );
+
+      return {
+        status: 200,
+        message: 'Email enviado exitosamente',
+      };
+    } catch (error) {
+      this.logger.error('Ocurrió un error, intentelo nuevamente', error.stack);
+      throw error;
+    }
+  }
   async getInvoiceReport(filters: ReportDto) {
     const today = new Date();
     let start: Date;

@@ -32,6 +32,40 @@ export class SendGridService {
     await sgMail.send(msg);
   }
 
+  async sendInvoiceWithTemplate(
+    to: string,
+    dynamicData: {
+      first_name: string;
+      invoiceNumber: string;
+      subTotal: string;
+      discount: string;
+      total: string;
+    },
+    pdfUrl: string,
+  ) {
+    const templateId = this.configService.get<string>(
+      'SENDGRID_TEMPLATE_ID_FACTURA',
+    );
+    if (!templateId) throw new Error('Falta el template ID de factura');
+
+    const msg = {
+      to,
+      from: 'facturacion@distribuidora-angus.com.ar',
+      templateId,
+      dynamic_template_data: dynamicData,
+      attachments: [
+        {
+          content: await this.downloadPdfAsBase64(pdfUrl),
+          filename: 'Factura.pdf',
+          type: 'application/pdf',
+          disposition: 'attachment',
+        },
+      ],
+    };
+
+    await sgMail.send(msg);
+  }
+
   private async downloadPdfAsBase64(pdfUrl: string): Promise<string> {
     const axios = await import('axios');
     const response = await axios.default.get(pdfUrl, {
