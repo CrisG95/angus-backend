@@ -42,6 +42,11 @@ export class ProductsController {
     return this.productsService.updateProduct(id, updateProductDto, user.email);
   }
 
+  @Get('categories')
+  async getProductCategories() {
+    return this.productsService.getProductCategories();
+  }
+
   @Get()
   async listProducts(@Query() filters: ListProductsDto) {
     return this.productsService.listProducts(filters);

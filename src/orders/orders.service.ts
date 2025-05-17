@@ -12,8 +12,7 @@ import {
   ClientSession,
   Types,
   FilterQuery,
-  PopulateOptions,
-  SortOrder,
+  PipelineStage,
 } from 'mongoose';
 import { isNil } from 'lodash';
 
@@ -24,21 +23,21 @@ import {
   UpdateOrderDto,
   ListOrderDto,
   CreateInvoiceFromOrderDto,
+  InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
-//import { ClientDocument } from '@clients/schemas/client.schema';
 import {
   OrderPaymentStatusEnum,
   OrderStatusEnum,
 } from '@orders/enums/order-status.enum';
-import { OrderSortableFieldsEnum } from '@orders/enums/order-sortable-fields.enum';
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 import { roundDecimal } from '@common/functions/round.function';
 
 import { ProductsService } from '@products/products.service';
 import { ClientsService } from '@clients/clients.service';
 import { BaseCrudService } from '@common/services/base-crud.service';
+import { SendGridService } from '@SendGrid/sendgrid.service';
 
 import { generateChangeHistory } from '@helpers/history.helper';
 import { ERROR_MESSAGES } from '@common/errors/error-messages';
@@ -61,6 +60,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     private readonly s3Service: S3Service,
     private readonly pdfService: PDFService,
     private readonly invoiceCounterService: InvoiceCounterService,
+    private readonly sendGridService: SendGridService,
   ) {
     super(orderModel);
   }
@@ -315,7 +315,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       return updated;
     });
   }
-  // --- calculateStockAdjustments (modificado para aceptar productMap) ---
+
   private calculateStockAdjustments(
     originalItemsMap: Map<string, number>, // productId -> oldQuantity
     newItemsMap: Map<string, number>, // productId -> newQuantity
@@ -338,7 +338,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     return adjustments;
   }
 
-  // --- applyStockAdjustments (modificado para aceptar productMap) ---
   private async applyStockAdjustments(
     adjustments: Map<string, number>,
     session: ClientSession,
@@ -512,54 +511,119 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       limit = 20,
       clientId,
       status,
+      paymentStatus,
       dateFrom,
       dateTo,
-      sortBy = OrderSortableFieldsEnum.createdAt,
+      sortBy,
       sortOrder = 'desc',
     } = filters;
 
-    const filter: FilterQuery<OrderDocument> = {};
+    const match: FilterQuery<OrderDocument> = {};
 
-    if (clientId) {
-      filter.clientId = clientId;
-    }
-
-    filter.status = status
-      ? status
-      : { $in: [OrderStatusEnum.EN_PROCESO, OrderStatusEnum.EN_PREPARACION] };
+    if (clientId) match.clientId = clientId;
+    if (status) match.status = status;
+    if (paymentStatus) match.paymentStatus = paymentStatus;
 
     const dateConditions: any = {};
-
-    if (dateFrom) {
-      dateConditions.$gte = new Date(dateFrom);
-    }
+    if (dateFrom) dateConditions.$gte = new Date(dateFrom);
     if (dateTo) {
       const end = new Date(dateTo);
       end.setHours(23, 59, 59, 999);
       dateConditions.$lte = end;
     }
     if (!isNil(dateConditions.$gte) || !isNil(dateConditions.$lte)) {
-      filter.createdAt = dateConditions;
+      match.createdAt = dateConditions;
     }
 
-    const direction: SortOrder = sortOrder === 'desc' ? -1 : 1;
-    const sortOptions: Record<string, SortOrder> = {
-      [sortBy]: direction,
+    // Mapa de prioridad de status
+    const statusOrder: Record<string, number> = {
+      EN_PROCESO: 1,
+      EN_PREPARACION: 2,
+      ENTREGADO: 3,
+      FACTURADO: 4,
+      CANCELADO: 5,
     };
 
-    const clientPopulate: PopulateOptions = {
-      path: 'clientId',
-      select: 'name email phoneNumber',
-    };
+    const sortStage = status
+      ? { [sortBy]: sortOrder === 'desc' ? -1 : 1 }
+      : {
+          statusOrder: 1,
+          createdAt: -1, // orden secundario
+        };
 
-    return this.paginate(filter, {
+    const pipeline: any[] = [
+      { $match: match },
+      {
+        $addFields: {
+          statusOrder: {
+            $switch: {
+              branches: Object.entries(statusOrder).map(([key, value]) => ({
+                case: { $eq: ['$status', key] },
+                then: value,
+              })),
+              default: 999,
+            },
+          },
+        },
+      },
+      { $sort: sortStage },
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: 'clients',
+                localField: 'clientId',
+                foreignField: '_id',
+                as: 'clientId',
+              },
+            },
+            {
+              $unwind: { path: '$clientId', preserveNullAndEmptyArrays: true },
+            },
+            {
+              $project: {
+                _id: 1,
+                status: 1,
+                paymentStatus: 1,
+                totalAmount: 1,
+                subTotal: 1,
+                pdfUrl: 1,
+                pdfStatus: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                discountAmount: 1,
+                discountPercentaje: 1,
+                increasePercentaje: 1,
+                invoiceNumber: 1,
+                'clientId.name': 1,
+                'clientId.email': 1,
+                'clientId.phoneNumber': 1,
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = await this.orderModel.aggregate(pipeline).exec();
+
+    const metadata = result[0]?.metadata[0] || { total: 0 };
+    const totalDocuments = metadata.total;
+    const totalPages = Math.ceil(totalDocuments / limit);
+
+    return {
+      data: result[0].data,
       page,
       limit,
-      lean: true,
-      sort: sortOptions,
-      projection: '-items -changeHistory -__v',
-      populate: clientPopulate,
-    });
+      totalDocuments,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 
   async findOrderByIdWithClient(orderId: string): Promise<any> {
@@ -594,7 +658,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         order = await this.orderModel
           .findById(orderId)
           .populate([
-            { path: 'clientId', select: 'name' },
+            { path: 'clientId', select: 'name email' },
             { path: 'items.productId', select: 'name' },
           ])
           .session(currentSession);
@@ -653,6 +717,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         const client = order.clientId as unknown as {
           _id: Types.ObjectId;
           name: string;
+          email: string;
         };
 
         const invoiceNumber =
@@ -718,6 +783,45 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
 
+  async sendInvoiceEmail({
+    orderId,
+  }: InvoiceEmailDto & { user: string }): Promise<any> {
+    try {
+      const order = (await this.findById(orderId, {
+        lean: true,
+        populate: [
+          {
+            path: 'clientId',
+            select: 'name email',
+          },
+        ],
+      })) as any;
+
+      const invoiceDataToSend = {
+        first_name: order.clientId.name,
+        invoiceNumber: order.invoiceNumber,
+        subTotal: order.subTotal,
+        discount: order.discountAmount ?? 0,
+        total: order.totalAmount,
+      };
+
+      await this.sendGridService.sendInvoiceWithTemplate(
+        order.clientId.email,
+        {
+          ...invoiceDataToSend,
+        },
+        order.pdfUrl,
+      );
+
+      return {
+        status: 200,
+        message: 'Email enviado exitosamente',
+      };
+    } catch (error) {
+      this.logger.error('Ocurrió un error, intentelo nuevamente', error.stack);
+      throw error;
+    }
+  }
   async getInvoiceReport(filters: ReportDto) {
     const today = new Date();
     let start: Date;
@@ -754,54 +858,129 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         break;
     }
 
-    const orders = (await this.orderModel
-      .find({
-        status: 'FACTURADO',
-        createdAt: { $gte: start, $lt: end },
-      })
-      .populate({ path: 'clientId', select: 'name' })
-      .lean()) as any[];
-
-    const report = {
-      period: period || 'custom',
-      range: { start, end },
-      totalOrders: orders.length,
-      totalAmount: 0,
-      pagos: {
-        PAGADO: { count: 0, total: 0, invoices: [] },
-        PENDIENTE_PAGO: { count: 0, total: 0, invoices: [] },
-        CANCELADO: { count: 0, total: 0, invoices: [] },
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          createdAt: { $gte: start, $lt: end },
+        },
       },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'clientId',
+          foreignField: '_id',
+          as: 'client',
+        },
+      },
+      { $unwind: { path: '$client', preserveNullAndEmptyArrays: false } },
+      {
+        $facet: {
+          byStatus: [
+            {
+              $group: {
+                _id: '$status',
+                count: { $sum: 1 },
+              },
+            },
+          ],
+          byPaymentStatus: [
+            {
+              $match: { status: 'FACTURADO' },
+            },
+            {
+              $group: {
+                _id: '$paymentStatus',
+                count: { $sum: 1 },
+                total: { $sum: '$totalAmount' },
+                invoices: {
+                  $push: {
+                    pdfUrl: '$pdfUrl',
+                    total: '$totalAmount',
+                    createdAt: '$createdAt',
+                    clientName: '$client.name',
+                    invoiceNumber: '$invoiceNumber',
+                  },
+                },
+              },
+            },
+          ],
+          topClients: [
+            {
+              $match: { status: 'FACTURADO' },
+            },
+            {
+              $group: {
+                _id: '$client._id',
+                name: { $first: '$client.name' },
+                totalAmount: { $sum: '$totalAmount' },
+                ordersCount: { $sum: 1 },
+              },
+            },
+            { $sort: { totalAmount: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [result] = await this.orderModel.aggregate(pipeline).exec();
+
+    // Construimos statusSummary
+    const statusSummary: Record<string, number> = {
+      EN_PROCESO: 0,
+      EN_PREPARACION: 0,
+      ENTREGADO: 0,
+      FACTURADO: 0,
+      CANCELADO: 0,
+    };
+    for (const item of result.byStatus) {
+      statusSummary[item._id] = item.count;
+    }
+
+    // Construimos pagos y financialSummary
+    const pagos = {
+      PAGADO: { count: 0, total: 0, invoices: [] },
+      PENDIENTE_PAGO: { count: 0, total: 0, invoices: [] },
+      CANCELADO: { count: 0, total: 0, invoices: [] },
     };
 
-    for (const order of orders) {
-      const estado = order.paymentStatus;
-      if (!report.pagos[estado]) {
-        report.pagos[estado] = { count: 0, total: 0, invoices: [] };
-      }
-      report.pagos[estado].count++;
-      report.pagos[estado].total = Number(
-        (report.pagos[estado].total + order.totalAmount).toFixed(2),
-      );
-      report.totalAmount = Number(
-        (report.totalAmount + order.totalAmount).toFixed(2),
-      );
-      report.pagos[estado].invoices.push({
-        pdfUrl: order.pdfUrl,
-        total: Number(order.totalAmount.toFixed(2)),
-        createdAt: order.createdAt,
-        clientName: order.clientId?.name || 'Consumidor Final',
-        invoiceNumber: order.invoiceNumber,
-      });
+    let totalAmount = 0;
+
+    for (const p of result.byPaymentStatus) {
+      pagos[p._id] = {
+        count: p.count,
+        total: Number(p.total.toFixed(2)),
+        invoices: (p.invoices || [])
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )
+          .map((i) => ({
+            ...i,
+            total: Number(i.total.toFixed(2)),
+          })),
+      };
+      totalAmount += p.total;
     }
 
-    for (const estado in report.pagos) {
-      report.pagos[estado].invoices.sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    }
+    const financialSummary = {
+      facturado: Number(totalAmount.toFixed(2)),
+      pagado: pagos.PAGADO?.total || 0,
+      pendientePago: pagos.PENDIENTE_PAGO?.total || 0,
+    };
 
-    return report;
+    return {
+      period: period || 'custom',
+      range: { start, end },
+      totalOrders: Object.values(statusSummary).reduce((sum, v) => sum + v, 0),
+      statusSummary,
+      financialSummary,
+      pagos,
+      topClients: result.topClients.map((c) => ({
+        name: c.name,
+        totalAmount: Number(c.totalAmount.toFixed(2)),
+        ordersCount: c.ordersCount,
+      })),
+    };
   }
 }

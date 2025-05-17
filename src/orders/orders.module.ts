@@ -9,6 +9,7 @@ import { ClientsModule } from '@clients/clients.module';
 import { S3Service } from '@common/services/s3.service';
 import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
+import { SendGridService } from '@SendGrid/sendgrid.service';
 import {
   InvoiceCounter,
   InvoiceCounterSchema,
@@ -23,7 +24,13 @@ import {
     ProductsModule,
     ClientsModule,
   ],
-  providers: [OrdersService, S3Service, PDFService, InvoiceCounterService],
+  providers: [
+    OrdersService,
+    S3Service,
+    PDFService,
+    InvoiceCounterService,
+    SendGridService,
+  ],
   controllers: [OrdersController],
   exports: [OrdersService],
 })

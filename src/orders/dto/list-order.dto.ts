@@ -8,11 +8,13 @@ import {
   IsMongoId,
   IsEnum,
   IsISO8601,
-  IsBooleanString,
   IsString,
   IsIn,
 } from 'class-validator';
-import { OrderStatusEnum } from '../enums/order-status.enum';
+import {
+  OrderPaymentStatusEnum,
+  OrderStatusEnum,
+} from '../enums/order-status.enum';
 import { OrderSortableFieldsEnum } from '../enums/order-sortable-fields.enum';
 
 const DEFAULT_LIMIT = 20;
@@ -42,16 +44,21 @@ export class ListOrderDto {
   readonly status?: OrderStatusEnum; // Filtrar por un estado específico (si se provee, sobreescribe el default)
 
   @IsOptional()
+  @IsEnum(OrderPaymentStatusEnum) // Valida que sea uno de los estados permitidos
+  @IsString()
+  readonly paymentStatus?: OrderPaymentStatusEnum; // Filtrar por un estado específico (si se provee, sobreescribe el default)
+
+  @IsOptional()
+  @IsString()
+  readonly invoiceNumber?: string;
+
+  @IsOptional()
   @IsISO8601() // Valida que sea una fecha en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss.sssZ)
   readonly dateFrom?: string; // Fecha de inicio para filtrar createdAt
 
   @IsOptional()
   @IsISO8601()
   readonly dateTo?: string; // Fecha de fin para filtrar createdAt
-
-  @IsOptional()
-  @IsBooleanString() // Valida 'true' o 'false' como strings
-  readonly invoiced?: string; // Filtrar por estado de facturación
 
   @IsOptional()
   @IsEnum(OrderSortableFieldsEnum)
