@@ -860,7 +860,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     orderId,
   }: InvoiceEmailDto & { user: string }): Promise<any> {
     try {
-      const order = this.findById(orderId, {
+      const order = (await this.findById(orderId, {
         lean: true,
         populate: [
           {
@@ -868,7 +868,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             select: 'name email',
           },
         ],
-      }) as any;
+      })) as any;
       console.log('🚀 ~ OrdersService ~ order:', order);
 
       const invoiceDataToSend = {
@@ -894,7 +894,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       };
     } catch (error) {
       this.logger.error('Ocurrió un error, intentelo nuevamente', error.stack);
-      throw new Error('Falta el template ID de factura');
+      throw error;
     }
   }
   async getInvoiceReport(filters: ReportDto) {
