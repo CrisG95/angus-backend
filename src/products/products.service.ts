@@ -108,8 +108,8 @@ export class ProductsService extends BaseCrudService<ProductDocument> {
         category,
         subCategory,
         codeBar,
-        brand,
-        provider,
+        brand: brand ? new RegExp(brand, 'i') : undefined,
+        provider: provider ? new RegExp(provider, 'i') : undefined,
         priceSell:
           minPrice !== undefined || maxPrice !== undefined
             ? {
