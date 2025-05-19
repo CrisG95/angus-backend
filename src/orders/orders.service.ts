@@ -512,6 +512,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       clientId,
       status,
       paymentStatus,
+      invoiceNumber,
       dateFrom,
       dateTo,
       sortBy,
@@ -520,9 +521,12 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
     const match: FilterQuery<OrderDocument> = {};
 
-    if (clientId) match.clientId = clientId;
+    if (clientId) {
+      match.clientId = new Types.ObjectId(clientId);
+    }
     if (status) match.status = status;
     if (paymentStatus) match.paymentStatus = paymentStatus;
+    if (invoiceNumber) match.invoiceNumber = invoiceNumber;
 
     const dateConditions: any = {};
     if (dateFrom) dateConditions.$gte = new Date(dateFrom);
