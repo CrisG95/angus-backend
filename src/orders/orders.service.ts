@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
-  Logger,
+  //Logger,
 } from '@nestjs/common';
 import { InjectModel, InjectConnection } from '@nestjs/mongoose';
 import {
@@ -22,45 +22,45 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   ListOrderDto,
-  CreateInvoiceFromOrderDto,
-  InvoiceEmailDto,
+  //CreateInvoiceFromOrderDto,
+  //InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
-import {
-  OrderPaymentStatusEnum,
-  OrderStatusEnum,
-} from '@orders/enums/order-status.enum';
+//import {
+//  OrderPaymentStatusEnum,
+//  OrderStatusEnum,
+//} from '@orders/enums/order-status.enum';
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 import { roundDecimal } from '@common/functions/round.function';
 
 import { ProductsService } from '@products/products.service';
 import { ClientsService } from '@clients/clients.service';
 import { BaseCrudService } from '@common/services/base-crud.service';
-import { SendGridService } from '@SendGrid/sendgrid.service';
+//import { SendGridService } from '@SendGrid/sendgrid.service';
 
-import { generateChangeHistory } from '@helpers/history.helper';
+//import { generateChangeHistory } from '@helpers/history.helper';
 import { ERROR_MESSAGES } from '@common/errors/error-messages';
-import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
+//import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
 
-import { S3Service } from '@common/services/s3.service';
-import { PDFService } from '@common/services/pdf.service';
+//import { S3Service } from '@common/services/s3.service';
+//import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
 import { ReportDto } from './dto/report.dto';
 
 @Injectable()
 export class OrdersService extends BaseCrudService<OrderDocument> {
-  private readonly logger = new Logger(OrdersService.name);
+  //private readonly logger = new Logger(OrdersService.name);
 
   constructor(
     @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly productsService: ProductsService,
     private readonly clientsService: ClientsService,
-    private readonly s3Service: S3Service,
-    private readonly pdfService: PDFService,
+    //private readonly s3Service: S3Service,
+    //private readonly pdfService: PDFService,
     private readonly invoiceCounterService: InvoiceCounterService,
-    private readonly sendGridService: SendGridService,
+    //private readonly sendGridService: SendGridService,
   ) {
     super(orderModel);
   }
@@ -153,11 +153,15 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           changes: [{ field: 'create', before: '', after: 'Order created' }],
         };
 
+        const invoiceNumber =
+          await this.invoiceCounterService.getNextInvoiceNumber();
+
         const newOrderData = {
           clientId: new Types.ObjectId(dto.clientId),
           items: orderItems, // Usar el array mapeado con precios
-          status: OrderStatusEnum.EN_PROCESO, // Estado inicial por defecto
-          paymentStatus: OrderPaymentStatusEnum.NO_FACTURADO, // Estado de pago inicial
+          //status: OrderStatusEnum.EN_PROCESO, // Estado inicial por defecto
+          //paymentStatus: OrderPaymentStatusEnum.NO_FACTURADO, // Estado de pago inicial
+          invoiceNumber,
           changeHistory: [initialChange],
           subTotal: roundDecimal(subTotal),
           totalAmount,
@@ -196,26 +200,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           select: 'ivaCondition',
         },
       });
-      //const client = order.clientId as unknown as ClientDocument;
-
-      // 2) Validar estado
-      if (
-        [
-          OrderStatusEnum.FACTURADO,
-          OrderStatusEnum.CANCELADO,
-          OrderStatusEnum.ENTREGADO,
-        ].includes(order.status as any)
-      ) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.ORDERS.INVALID_STATUS_TERMINAL_TRANSITION(
-            order.status,
-          ),
-        );
-      }
 
       // 3) Comparar y ajustar items + stock
-      let newItems = order.items;
-      let newSubTotal = order.subTotal;
+      let newItems;
+      let newSubTotal = 0;
 
       if (dto.items) {
         // 3.a) calcular ajustes de stock
@@ -242,11 +230,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
         // 3.d) reconstruir items + subtotal
         newItems = dto.items.map((item) => {
-          const orig = order.items.find(
-            (o) => o.productId.toString() === item.productId,
-          );
-          const price =
-            orig?.unitPrice ?? productMap.get(item.productId)!.priceSell;
+          const price = productMap.get(item.productId)!.priceSell;
           newSubTotal += item.quantity * price;
           return {
             productId: new Types.ObjectId(item.productId),
@@ -262,19 +246,19 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       const changes = [];
 
       // 5.a) campos simples: status, paymentStatus, invoiced, etc.
-      const simpleChange = generateChangeHistory(
-        order.toObject(),
-        dto,
-        userEmail,
-      );
-      if (simpleChange) changes.push(...simpleChange.changes);
+      //const simpleChange = generateChangeHistory(
+      //  order.toObject(),
+      //  dto,
+      //  userEmail,
+      //);
+      //if (simpleChange) changes.push(...simpleChange.changes);
 
       // 5.b) items y totales
       if (dto.items) {
         changes.push({
           field: 'items',
-          before: JSON.stringify(order.items),
-          after: JSON.stringify(newItems),
+          before: order.items,
+          after: newItems,
         });
       }
       if (roundDecimal(order.subTotal) !== roundDecimal(newSubTotal)) {
@@ -297,7 +281,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         items: newItems,
         subTotal: roundDecimal(newSubTotal),
         totalAmount: newTotal,
-        ...dto, // status, paymentStatus, invoiced si venían en el DTO
+        //...dto, // status, paymentStatus, invoiced si venían en el DTO
       };
       if (changes.length) {
         updateOps.$push = {
@@ -347,6 +331,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
 
     const stockIncreases: { productId: string; amount: number }[] = [];
+
     const stockDecreases: { productId: string; amount: number }[] = [];
 
     for (const [productId, diff] of adjustments) {
@@ -380,6 +365,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
 
+  /*
   private allowedTransitions: Record<OrderStatusEnum, OrderStatusEnum[]> = {
     [OrderStatusEnum.EN_PROCESO]: [
       OrderStatusEnum.EN_PREPARACION,
@@ -503,6 +489,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     return updated;
   }
 
+  */
+
   async findAll(
     filters: ListOrderDto,
   ): Promise<PaginatedResult<OrderDocument>> {
@@ -510,13 +498,13 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       page = 1,
       limit = 20,
       clientId,
-      status,
-      paymentStatus,
+      //status,
+      //paymentStatus,
       invoiceNumber,
       dateFrom,
       dateTo,
-      sortBy,
-      sortOrder = 'desc',
+      //sortBy,
+      //sortOrder = 'desc',
     } = filters;
 
     const match: FilterQuery<OrderDocument> = {};
@@ -524,8 +512,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     if (clientId) {
       match.clientId = new Types.ObjectId(clientId);
     }
-    if (status) match.status = status;
-    if (paymentStatus) match.paymentStatus = paymentStatus;
+    //if (status) match.status = status;
+    //if (paymentStatus) match.paymentStatus = paymentStatus;
     if (invoiceNumber) match.invoiceNumber = invoiceNumber;
 
     const dateConditions: any = {};
@@ -540,35 +528,32 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
 
     // Mapa de prioridad de status
-    const statusOrder: Record<string, number> = {
-      EN_PROCESO: 1,
-      EN_PREPARACION: 2,
-      ENTREGADO: 3,
-      FACTURADO: 4,
-      CANCELADO: 5,
-    };
+    //const statusOrder: Record<string, number> = {
+    //  EN_PROCESO: 1,
+    //  EN_PREPARACION: 2,
+    //  ENTREGADO: 3,
+    //  FACTURADO: 4,
+    //  CANCELADO: 5,
+    //};
 
-    const sortStage = status
-      ? { [sortBy]: sortOrder === 'desc' ? -1 : 1 }
-      : {
-          statusOrder: 1,
-          createdAt: -1, // orden secundario
-        };
+    const sortStage = {
+      createdAt: -1, // orden secundario
+    };
 
     const pipeline: any[] = [
       { $match: match },
       {
-        $addFields: {
-          statusOrder: {
-            $switch: {
-              branches: Object.entries(statusOrder).map(([key, value]) => ({
-                case: { $eq: ['$status', key] },
-                then: value,
-              })),
-              default: 999,
-            },
-          },
-        },
+        //$addFields: {
+        //  statusOrder: {
+        //    $switch: {
+        //      branches: Object.entries(statusOrder).map(([key, value]) => ({
+        //        case: { $eq: ['$status', key] },
+        //        then: value,
+        //      })),
+        //      default: 999,
+        //    },
+        //  },
+        //},
       },
       { $sort: sortStage },
       {
@@ -591,12 +576,12 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             {
               $project: {
                 _id: 1,
-                status: 1,
-                paymentStatus: 1,
+                //status: 1,
+                //paymentStatus: 1,
                 totalAmount: 1,
                 subTotal: 1,
-                pdfUrl: 1,
-                pdfStatus: 1,
+                //pdfUrl: 1,
+                //pdfStatus: 1,
                 createdAt: 1,
                 updatedAt: 1,
                 discountAmount: 1,
@@ -646,6 +631,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     });
   }
 
+  /*
   async createInvoice({
     orderId,
     suggestionRate,
@@ -786,7 +772,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       await session.endSession();
     }
   }
+*/
 
+  /*
   async sendInvoiceEmail({
     orderId,
   }: InvoiceEmailDto & { user: string }): Promise<any> {
@@ -826,6 +814,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       throw error;
     }
   }
+  */
   async getInvoiceReport(filters: ReportDto) {
     const today = new Date();
     let start: Date;
