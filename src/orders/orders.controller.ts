@@ -31,7 +31,7 @@ import {
 } from '@orders/dto/index';
 
 import { ValidateObjectIdPipe } from '@common/pipes/validate-object-id.pipes';
-import { ReportDto } from './dto/report.dto';
+//import { ReportDto } from './dto/report.dto';
 
 @Controller('orders')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -103,10 +103,10 @@ export class OrdersController {
   //  return this.ordersService.sendInvoiceEmail({ ...dto, user: user.email });
   //}
 
-  @Get('invoice/report')
-  async getInvoiceReport(@Query() filters: ReportDto) {
-    return this.ordersService.getInvoiceReport(filters);
-  }
+  //@Get('invoice/report')
+  //async getInvoiceReport(@Query() filters: ReportDto) {
+  //  return this.ordersService.getInvoiceReport(filters);
+  //}
 
   @Get()
   async listOrders(

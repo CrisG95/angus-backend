@@ -12,9 +12,9 @@ import {
   ClientSession,
   Types,
   FilterQuery,
-  PipelineStage,
+  //PipelineStage,
 } from 'mongoose';
-import { isNil } from 'lodash';
+//import { isNil } from 'lodash';
 
 import { Order, OrderDocument, OrderItem } from '@orders/schemas/order.schema';
 
@@ -46,7 +46,7 @@ import { ERROR_MESSAGES } from '@common/errors/error-messages';
 //import { S3Service } from '@common/services/s3.service';
 //import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
-import { ReportDto } from './dto/report.dto';
+//import { ReportDto } from './dto/report.dto';
 import { PatchOrderDto } from './dto/patch-order.dto';
 
 @Injectable()
@@ -600,24 +600,26 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       page = 1,
       limit = 20,
       clientId,
-      //status,
-      //paymentStatus,
       invoiceNumber,
       dateFrom,
       dateTo,
-      //sortBy,
-      //sortOrder = 'desc',
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
     } = filters;
 
     const match: FilterQuery<OrderDocument> = {};
 
+    // Filtrado por cliente
     if (clientId) {
       match.clientId = new Types.ObjectId(clientId);
     }
-    //if (status) match.status = status;
-    //if (paymentStatus) match.paymentStatus = paymentStatus;
-    if (invoiceNumber) match.invoiceNumber = invoiceNumber;
 
+    // Filtrado por número de factura
+    if (invoiceNumber) {
+      match.invoiceNumber = invoiceNumber;
+    }
+
+    // Filtrado por rango de fechas
     const dateConditions: any = {};
     if (dateFrom) dateConditions.$gte = new Date(dateFrom);
     if (dateTo) {
@@ -625,38 +627,18 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       end.setHours(23, 59, 59, 999);
       dateConditions.$lte = end;
     }
-    if (!isNil(dateConditions.$gte) || !isNil(dateConditions.$lte)) {
+
+    if (Object.keys(dateConditions).length) {
       match.createdAt = dateConditions;
     }
 
-    // Mapa de prioridad de status
-    //const statusOrder: Record<string, number> = {
-    //  EN_PROCESO: 1,
-    //  EN_PREPARACION: 2,
-    //  ENTREGADO: 3,
-    //  FACTURADO: 4,
-    //  CANCELADO: 5,
-    //};
-
+    // Ordenamiento dinámico
     const sortStage = {
-      createdAt: -1, // orden secundario
+      [sortBy]: sortOrder === 'asc' ? 1 : -1,
     };
 
     const pipeline: any[] = [
       { $match: match },
-      {
-        //$addFields: {
-        //  statusOrder: {
-        //    $switch: {
-        //      branches: Object.entries(statusOrder).map(([key, value]) => ({
-        //        case: { $eq: ['$status', key] },
-        //        then: value,
-        //      })),
-        //      default: 999,
-        //    },
-        //  },
-        //},
-      },
       { $sort: sortStage },
       {
         $facet: {
@@ -678,18 +660,15 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             {
               $project: {
                 _id: 1,
-                //status: 1,
-                //paymentStatus: 1,
                 totalAmount: 1,
                 subTotal: 1,
-                //pdfUrl: 1,
-                //pdfStatus: 1,
                 createdAt: 1,
                 updatedAt: 1,
                 discountAmount: 1,
                 discountPercentaje: 1,
                 increasePercentaje: 1,
                 invoiceNumber: 1,
+                suggestedPriceRate: 1,
                 'clientId.name': 1,
                 'clientId.email': 1,
                 'clientId.phoneNumber': 1,
@@ -917,6 +896,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
   */
+
+  /*
   async getInvoiceReport(filters: ReportDto) {
     const today = new Date();
     let start: Date;
@@ -978,27 +959,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
               },
             },
           ],
-          byPaymentStatus: [
-            {
-              $match: { status: 'FACTURADO' },
-            },
-            {
-              $group: {
-                _id: '$paymentStatus',
-                count: { $sum: 1 },
-                total: { $sum: '$totalAmount' },
-                invoices: {
-                  $push: {
-                    pdfUrl: '$pdfUrl',
-                    total: '$totalAmount',
-                    createdAt: '$createdAt',
-                    clientName: '$client.name',
-                    invoiceNumber: '$invoiceNumber',
-                  },
-                },
-              },
-            },
-          ],
+
           topClients: [
             {
               $match: { status: 'FACTURADO' },
@@ -1078,4 +1039,5 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       })),
     };
   }
+  */
 }
