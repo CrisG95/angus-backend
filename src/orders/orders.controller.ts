@@ -7,7 +7,7 @@ import {
   Query,
   UseGuards,
   Param,
-  //Patch,
+  Patch,
 } from '@nestjs/common';
 
 import { AuthGuard } from '@nestjs/passport';
@@ -23,6 +23,7 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   ListOrderDto,
+  PatchOrderDto,
   //UpdateOrderStatusDto,
   //UpdatePaymentStatusDto,
   //CreateInvoiceFromOrderDto,
@@ -53,6 +54,15 @@ export class OrdersController {
     @Param('id', ValidateObjectIdPipe) id: string,
   ) {
     return this.ordersService.updateOrder(id, updateOrderDto, user.email);
+  }
+
+  @Patch(':id')
+  async adjustPrices(
+    @Param('id', ValidateObjectIdPipe) id: string,
+    @Body() dto: PatchOrderDto,
+    @User() user: UserPayload,
+  ): Promise<OrderDocument> {
+    return this.ordersService.adjustPrices(id, dto, user.email);
   }
 
   //@Patch(':id/status')

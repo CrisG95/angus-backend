@@ -47,6 +47,7 @@ import { ERROR_MESSAGES } from '@common/errors/error-messages';
 //import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
 import { ReportDto } from './dto/report.dto';
+import { PatchOrderDto } from './dto/patch-order.dto';
 
 @Injectable()
 export class OrdersService extends BaseCrudService<OrderDocument> {
@@ -291,6 +292,107 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       // 7) Aplicar el update con nuestro genérico
       const updated = await this.findOneAndUpdate({ _id: orderId }, updateOps, {
+        session,
+        returnNew: true,
+        lean: true,
+      });
+
+      return updated;
+    });
+  }
+
+  async adjustPrices(
+    id: string,
+    dto: PatchOrderDto,
+    userEmail: string,
+  ): Promise<any> {
+    const { increase, decrease, suggestedPriceRate } = dto;
+
+    if (
+      increase === undefined &&
+      decrease === undefined &&
+      suggestedPriceRate === undefined
+    ) {
+      throw new BadRequestException('No values provided for price adjustment');
+    }
+
+    const session = await this.connection.startSession();
+
+    return session.withTransaction(async (session) => {
+      const order = await this.orderModel.findById(id).session(session);
+      if (!order) {
+        throw new NotFoundException(`Order with id ${id} not found`);
+      }
+
+      let newSubTotal = 0;
+
+      for (const item of order.items) {
+        if (increase !== undefined) {
+          item.unitPrice = parseFloat(
+            (item.unitPrice * (1 + increase / 100)).toFixed(2),
+          );
+        } else if (decrease !== undefined) {
+          item.unitPrice = parseFloat(
+            (item.unitPrice * (1 - decrease / 100)).toFixed(2),
+          );
+        }
+
+        if (suggestedPriceRate !== undefined) {
+          item.suggestedPrice = parseFloat(
+            (item.unitPrice * (1 + suggestedPriceRate / 100)).toFixed(2),
+          );
+        }
+
+        newSubTotal += item.quantity * item.unitPrice;
+      }
+
+      const newTotal = roundDecimal(newSubTotal);
+      const changes = [];
+      const updateOps: any = {
+        items: order.items,
+        subTotal: roundDecimal(newSubTotal),
+        totalAmount: newTotal,
+      };
+
+      if (increase !== undefined) {
+        changes.push({
+          field: 'Ajuste de precio (%)',
+          before: order.totalAmount.toString(),
+          after: newTotal.toString(),
+        });
+        updateOps.increasePercentaje = increase;
+      }
+
+      if (decrease !== undefined) {
+        changes.push({
+          field: 'Descuento aplicado (%)',
+          before: order.totalAmount.toString(),
+          after: newTotal.toString(),
+        });
+        updateOps.discountPercentaje = decrease;
+        updateOps.discountAmount = roundDecimal(order.totalAmount - newTotal);
+      }
+
+      if (suggestedPriceRate !== undefined) {
+        changes.push({
+          field: 'Precio sugerido (%)',
+          before: order.suggestedPriceRate?.toString() ?? 'N/A',
+          after: suggestedPriceRate.toString(),
+        });
+        updateOps.suggestedPriceRate = suggestedPriceRate;
+      }
+
+      if (changes.length) {
+        updateOps.$push = {
+          changeHistory: {
+            date: new Date(),
+            user: userEmail,
+            changes,
+          },
+        };
+      }
+
+      const updated = await this.findOneAndUpdate({ _id: id }, updateOps, {
         session,
         returnNew: true,
         lean: true,

@@ -5,6 +5,7 @@ import { UpdateOrderStatusDto } from './update-order-status.dto';
 import { UpdatePaymentStatusDto } from './update-payment-status.dto';
 import { CreateInvoiceFromOrderDto } from './create-invoice.dto';
 import { InvoiceEmailDto } from './send-invoice-email.dto';
+import { PatchOrderDto } from './patch-order.dto';
 export {
   CreateOrderDto,
   UpdateOrderDto,
@@ -13,4 +14,5 @@ export {
   UpdatePaymentStatusDto,
   CreateInvoiceFromOrderDto,
   InvoiceEmailDto,
+  PatchOrderDto,
 };

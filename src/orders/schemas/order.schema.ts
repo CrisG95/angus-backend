@@ -32,6 +32,9 @@ export class OrderItem {
 
   @Prop({ required: true, type: Number })
   unitPrice: number;
+
+  @Prop({ required: false, type: Number })
+  suggestedPrice?: number;
 }
 
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
@@ -99,6 +102,11 @@ export class Order {
     required: false,
   })
   discountAmount: number;
+
+  @Prop({
+    required: false,
+  })
+  suggestedPriceRate: number; // <- nuevo campo
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
