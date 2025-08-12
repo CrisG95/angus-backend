@@ -24,6 +24,7 @@ import {
   UpdateOrderDto,
   ListOrderDto,
   PatchOrderDto,
+  ReportDto,
   //UpdateOrderStatusDto,
   //UpdatePaymentStatusDto,
   //CreateInvoiceFromOrderDto,
@@ -103,10 +104,10 @@ export class OrdersController {
   //  return this.ordersService.sendInvoiceEmail({ ...dto, user: user.email });
   //}
 
-  //@Get('invoice/report')
-  //async getInvoiceReport(@Query() filters: ReportDto) {
-  //  return this.ordersService.getInvoiceReport(filters);
-  //}
+  @Get('invoice/report')
+  async getInvoiceReport(@Query() filters: ReportDto) {
+    return this.ordersService.getInvoiceReport(filters);
+  }
 
   @Get()
   async listOrders(

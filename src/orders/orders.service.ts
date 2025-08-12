@@ -12,7 +12,7 @@ import {
   ClientSession,
   Types,
   FilterQuery,
-  //PipelineStage,
+  PipelineStage,
 } from 'mongoose';
 //import { isNil } from 'lodash';
 
@@ -46,7 +46,7 @@ import { ERROR_MESSAGES } from '@common/errors/error-messages';
 //import { S3Service } from '@common/services/s3.service';
 //import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
-//import { ReportDto } from './dto/report.dto';
+import { ReportDto } from './dto/report.dto';
 import { PatchOrderDto } from './dto/patch-order.dto';
 
 @Injectable()
@@ -136,10 +136,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             // Si falla, es por stock insuficiente (ya validamos que existe)
             throw new ConflictException(
               ERROR_MESSAGES.PRODUCTS.INSUFFICIENT_STOCK(product.name) +
-                ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
-                  quantity,
-                  product.stock,
-                ),
+              ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
+                quantity,
+                product.stock,
+              ),
             );
           }
           ////////////
@@ -241,8 +241,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             unitPrice: price,
             suggestedPrice: hasSuggestedPrice
               ? parseFloat(
-                  (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
-                )
+                (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
+              )
               : undefined,
           };
         });
@@ -921,6 +921,109 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
   */
+
+  async getInvoiceReport(filters: ReportDto) {
+    const today = new Date();
+    let start: Date;
+    let end: Date;
+
+    const { period, startDate, endDate } = filters;
+
+    switch (period) {
+      case 'DAILY':
+        start = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate(),
+        );
+        end = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + 1,
+        );
+        break;
+      case 'WEEKLY':
+        start = new Date(today);
+        start.setDate(today.getDate() - today.getDay());
+        end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        break;
+      case 'MONTHLY':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        break;
+      default:
+        start = startDate ? new Date(startDate) : new Date(0);
+        end = endDate ? new Date(endDate) : new Date();
+        break;
+    }
+
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          createdAt: { $gte: start, $lt: end },
+        },
+      },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'clientId',
+          foreignField: '_id',
+          as: 'client',
+        },
+      },
+      { $unwind: '$client' },
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalOrders: { $sum: 1 },
+                totalAmount: { $sum: '$totalAmount' },
+                totalSubTotal: { $sum: '$subTotal' },
+              },
+            },
+          ],
+          topClients: [
+            {
+              $group: {
+                _id: '$client._id',
+                name: { $first: '$client.name' },
+                totalAmount: { $sum: '$totalAmount' },
+                ordersCount: { $sum: 1 },
+              },
+            },
+            { $sort: { totalAmount: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [result] = await this.orderModel.aggregate(pipeline).exec();
+
+    const totals = result.totals[0] || {
+      totalOrders: 0,
+      totalAmount: 0,
+      totalSubTotal: 0,
+    };
+
+    return {
+      period: period || 'custom',
+      range: { start, end },
+      totalOrders: totals.totalOrders,
+      financialSummary: {
+        totalAmount: Number(totals.totalAmount?.toFixed(2) || 0),
+        totalSubTotal: Number(totals.totalSubTotal?.toFixed(2) || 0),
+      },
+      topClients: result.topClients.map((c) => ({
+        name: c.name,
+        totalAmount: Number(c.totalAmount.toFixed(2)),
+        ordersCount: c.ordersCount,
+      })),
+    };
+  }
 
   /*
   async getInvoiceReport(filters: ReportDto) {
