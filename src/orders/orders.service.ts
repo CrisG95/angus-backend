@@ -205,6 +205,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       // 3) Comparar y ajustar items + stock
       let newItems;
       let newSubTotal = 0;
+      let hasSuggestedPrice = false;
+      if (order.suggestedPriceRate) hasSuggestedPrice = true;
 
       if (dto.items) {
         // 3.a) calcular ajustes de stock
@@ -237,6 +239,11 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             productId: new Types.ObjectId(item.productId),
             quantity: item.quantity,
             unitPrice: price,
+            suggestedPrice: hasSuggestedPrice
+              ? parseFloat(
+                  (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
+                )
+              : undefined,
           };
         });
       }
@@ -326,15 +333,33 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       let newSubTotal = 0;
 
+      let hasSuggestedPrice = false;
+
+      if (order.suggestedPriceRate) hasSuggestedPrice = true;
+
       for (const item of order.items) {
         if (increase !== undefined) {
           item.unitPrice = parseFloat(
             (item.unitPrice * (1 + increase / 100)).toFixed(2),
           );
+          if (hasSuggestedPrice) {
+            item.suggestedPrice = parseFloat(
+              (item.unitPrice * (1 + order.suggestedPriceRate / 100)).toFixed(
+                2,
+              ),
+            );
+          }
         } else if (decrease !== undefined) {
           item.unitPrice = parseFloat(
             (item.unitPrice * (1 - decrease / 100)).toFixed(2),
           );
+          if (hasSuggestedPrice) {
+            item.suggestedPrice = parseFloat(
+              (item.unitPrice * (1 - order.suggestedPriceRate / 100)).toFixed(
+                2,
+              ),
+            );
+          }
         }
 
         if (suggestedPriceRate !== undefined) {

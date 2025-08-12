@@ -5,7 +5,6 @@ import {
   IsMongoId,
   IsNumber,
   Min,
-  IsOptional,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateOrderDto } from './create-order.dto';
@@ -24,19 +23,4 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @ValidateNested({ each: true })
   @Type(() => UpdateOrderItemDto)
   items?: UpdateOrderItemDto[];
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  increase?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  decrease?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  suggestedPriceRate?: number;
 }
