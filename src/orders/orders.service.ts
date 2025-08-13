@@ -1019,6 +1019,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       },
       topClients: result.topClients.map((c) => ({
         name: c.name,
+        id: c._id,
         totalAmount: Number(c.totalAmount.toFixed(2)),
         ordersCount: c.ordersCount,
       })),
