@@ -649,7 +649,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
     // Filtrado por número de factura
     if (invoiceNumber) {
-      match.invoiceNumber = invoiceNumber;
+      match.invoiceNumber = { $regex: invoiceNumber, $options: 'i' };;
     }
 
     // Filtrado por rango de fechas
