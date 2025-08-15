@@ -198,10 +198,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       // 1) Traer la orden completa + cliente IVA
       const order = await this.findById(orderId, {
         session,
-        populate: {
-          path: 'clientId',
-          select: 'ivaCondition',
-        },
+        populate: { path: 'clientId', select: 'ivaCondition' },
       });
 
       // 3) Comparar y ajustar items + stock
@@ -224,16 +221,36 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         );
         const products = await this.productsService.find(
           { _id: { $in: allIds } },
-          {
-            session,
-          },
+          { session },
         );
         const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
-        // 3.c) aplicar ajustes atómicos
+        // 3.c) validar stock suficiente antes de aplicar ajustes
+        for (const [productId, adjustment] of adjustments.entries()) {
+          if (adjustment > 0) {
+            // aumento en cantidad => requiere stock
+            const product = productMap.get(productId);
+            if (!product) {
+              throw new NotFoundException(
+                ERROR_MESSAGES.PRODUCTS.NOT_FOUND(productId),
+              );
+            }
+            if (product.stock < adjustment) {
+              throw new ConflictException(
+                ERROR_MESSAGES.PRODUCTS.INSUFFICIENT_STOCK(product.name) +
+                  ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
+                    adjustment,
+                    product.stock,
+                  ),
+              );
+            }
+          }
+        }
+
+        // 3.d) aplicar ajustes atómicos
         await this.applyStockAdjustments(adjustments, session);
 
-        // 3.d) reconstruir items + subtotal
+        // 3.e) reconstruir items + subtotal
         newItems = dto.items.map((item) => {
           const price = productMap.get(item.productId)!.priceSell;
           newSubTotal += item.quantity * price;
@@ -254,16 +271,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       // 5) Generar historial de cambios
       const changes = [];
-
-      // 5.a) campos simples: status, paymentStatus, invoiced, etc.
-      //const simpleChange = generateChangeHistory(
-      //  order.toObject(),
-      //  dto,
-      //  userEmail,
-      //);
-      //if (simpleChange) changes.push(...simpleChange.changes);
-
-      // 5.b) items y totales
       if (dto.items) {
         changes.push({
           field: 'items',
@@ -291,7 +298,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         items: newItems,
         subTotal: roundDecimal(newSubTotal),
         totalAmount: newTotal,
-        //...dto, // status, paymentStatus, invoiced si venían en el DTO
       };
       if (changes.length) {
         updateOps.$push = {
