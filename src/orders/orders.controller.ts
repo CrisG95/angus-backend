@@ -8,6 +8,7 @@ import {
   UseGuards,
   Param,
   Patch,
+  Res,
 } from '@nestjs/common';
 
 import { AuthGuard } from '@nestjs/passport';
@@ -107,6 +108,11 @@ export class OrdersController {
   @Get('invoice/report')
   async getInvoiceReport(@Query() filters: ReportDto) {
     return this.ordersService.getInvoiceReport(filters);
+  }
+
+  @Get('excel')
+  async downloadExcel(@Query() filters: ReportDto, @Res() res: any) {
+    return this.ordersService.exportOrdersToExcel(filters, res);
   }
 
   @Get()

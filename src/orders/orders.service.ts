@@ -15,6 +15,8 @@ import {
   PipelineStage,
 } from 'mongoose';
 //import { isNil } from 'lodash';
+import * as ExcelJS from 'exceljs';
+import { Response } from 'express';
 
 import { Order, OrderDocument, OrderItem } from '@orders/schemas/order.schema';
 
@@ -136,10 +138,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             // Si falla, es por stock insuficiente (ya validamos que existe)
             throw new ConflictException(
               ERROR_MESSAGES.PRODUCTS.INSUFFICIENT_STOCK(product.name) +
-              ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
-                quantity,
-                product.stock,
-              ),
+                ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
+                  quantity,
+                  product.stock,
+                ),
             );
           }
           ////////////
@@ -241,8 +243,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             unitPrice: price,
             suggestedPrice: hasSuggestedPrice
               ? parseFloat(
-                (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
-              )
+                  (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
+                )
               : undefined,
           };
         });
@@ -1169,4 +1171,161 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     };
   }
   */
+
+  private getDateRange(period: string, startDate?: string, endDate?: string) {
+    const today = new Date();
+    let start: Date;
+    let end: Date;
+
+    switch (period) {
+      case 'DAILY':
+        start = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate(),
+        );
+        end = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + 1,
+        );
+        break;
+      case 'WEEKLY':
+        start = new Date(today);
+        start.setDate(today.getDate() - today.getDay());
+        end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        break;
+      case 'MONTHLY':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        break;
+      default:
+        start = startDate ? new Date(startDate) : new Date(0);
+        end = endDate ? new Date(endDate) : new Date();
+        break;
+    }
+    return { start, end };
+  }
+
+  async exportOrdersToExcel(filters: ReportDto, res: Response) {
+    const { start, end } = this.getDateRange(
+      filters.period,
+      filters.startDate,
+      filters.endDate,
+    );
+
+    // Traemos órdenes con cliente y productos
+    const orders: any = await this.orderModel
+      .find({ createdAt: { $gte: start, $lt: end } })
+      .populate('clientId')
+      .populate('items.productId')
+      .lean();
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistema de Facturación';
+    workbook.created = new Date();
+
+    // Hoja 1: Resumen de órdenes
+    const ordersSheet = workbook.addWorksheet('Resumen de Órdenes');
+    ordersSheet.columns = [
+      { header: 'Factura', key: 'invoiceNumber', width: 12 },
+      { header: 'Fecha', key: 'createdAt', width: 15 },
+      { header: 'Cliente', key: 'clientName', width: 30 },
+      { header: 'CUIT', key: 'cuit', width: 18 },
+      { header: 'Condición IVA', key: 'ivaCondition', width: 15 },
+      { header: 'SubTotal', key: 'subTotal', width: 15 },
+      { header: 'Total', key: 'totalAmount', width: 15 },
+      { header: '% Aumento', key: 'increasePercentaje', width: 12 },
+      { header: '% Descuento', key: 'decreasePercentaje', width: 12 },
+      { header: '% Sugerido', key: 'suggestedPriceRate', width: 12 },
+    ];
+
+    orders.forEach((order) => {
+      ordersSheet.addRow({
+        invoiceNumber: order.invoiceNumber,
+        createdAt: order.createdAt.toISOString().split('T')[0],
+        clientName: order.clientId?.name || '',
+        cuit: order.clientId?.cuit || '',
+        ivaCondition: order.clientId?.ivaCondition || '',
+        subTotal: order.subTotal,
+        totalAmount: order.totalAmount,
+        increasePercentaje: order.increasePercentaje || '',
+        decreasePercentaje: order.decreasePercentaje || '',
+        suggestedPriceRate: order.suggestedPriceRate || '',
+      });
+    });
+
+    // Hoja 2: Detalle de ítems
+    const itemsSheet = workbook.addWorksheet('Detalle de Ítems');
+    itemsSheet.columns = [
+      { header: 'Factura', key: 'invoiceNumber', width: 12 },
+      { header: 'Fecha', key: 'createdAt', width: 15 },
+      { header: 'Cliente', key: 'clientName', width: 30 },
+      { header: 'Producto', key: 'productName', width: 40 },
+      { header: 'Marca', key: 'brand', width: 20 },
+      { header: 'Cantidad', key: 'quantity', width: 10 },
+      { header: 'Precio Unit.', key: 'unitPrice', width: 15 },
+      { header: 'Precio Sugerido', key: 'suggestedPrice', width: 18 },
+    ];
+
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        itemsSheet.addRow({
+          invoiceNumber: order.invoiceNumber,
+          createdAt: order.createdAt.toISOString().split('T')[0],
+          clientName: order.clientId?.name || '',
+          productName: item.productId?.name || '',
+          brand: item.productId?.brand || '',
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          suggestedPrice: item.suggestedPrice,
+        });
+      });
+    });
+
+    const sheetProducts = workbook.addWorksheet('Productos vendidos');
+    sheetProducts.columns = [
+      { header: 'Producto', key: 'product', width: 30 },
+      { header: 'Cantidad total', key: 'quantity', width: 20 },
+      { header: 'Monto total', key: 'amount', width: 20 },
+    ];
+
+    const productMap: Record<
+      string,
+      { name: string; quantity: number; amount: number }
+    > = {};
+
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        const prodName = item.productId?.name || 'Producto desconocido';
+        if (!productMap[prodName]) {
+          productMap[prodName] = { name: prodName, quantity: 0, amount: 0 };
+        }
+        productMap[prodName].quantity += item.quantity;
+        productMap[prodName].amount += item.quantity * item.unitPrice;
+      });
+    });
+
+    Object.values(productMap).forEach((prod) => {
+      sheetProducts.addRow({
+        product: prod.name,
+        quantity: prod.quantity,
+        amount: prod.amount,
+      });
+    });
+
+    // Configuración de cabeceras para descarga
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="reporte_${new Date().toISOString().split('T')[0]}.xlsx"`,
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  }
 }
