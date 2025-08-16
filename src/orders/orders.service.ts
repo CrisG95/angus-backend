@@ -1321,15 +1321,23 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       });
     });
 
+    const safeStart = start ? start.toISOString().split('T')[0] : 'sin_fecha';
+    const safeEnd = end ? end.toISOString().split('T')[0] : 'sin_fecha';
+
     // Configuración de cabeceras para descarga
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
+
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="reporte_${new Date().toISOString().split('T')[0]}.xlsx"`,
+      `attachment; filename="reporte_${safeStart}_${safeEnd}.xlsx"`,
     );
+    //res.setHeader(
+    //  'Content-Disposition',
+    //  `attachment; filename="reporte_${new Date().toISOString().split('T')[0]}.xlsx"`,
+    //);
 
     await workbook.xlsx.write(res);
     res.end();
