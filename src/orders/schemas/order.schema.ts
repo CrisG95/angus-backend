@@ -33,6 +33,9 @@ export class OrderItem {
   @Prop({ required: true, type: Number })
   unitPrice: number;
 
+  @Prop({ required: true, type: Number })
+  unitMessure: number;
+
   @Prop({ required: false, type: Number })
   suggestedPrice?: number;
 }

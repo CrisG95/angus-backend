@@ -115,6 +115,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             productId: new Types.ObjectId(itemDto.productId), // Asegurar ObjectId
             quantity: itemDto.quantity,
             unitPrice, // Guardar precio unitario histórico
+            unitMessure: Number(product.unitMessure ?? 1),
           });
 
           subTotal += itemDto.quantity * unitPrice;
@@ -258,6 +259,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             productId: new Types.ObjectId(item.productId),
             quantity: item.quantity,
             unitPrice: price,
+            unitMessure: Number(
+              productMap.get(item.productId)!.unitMessure ?? 1,
+            ),
             suggestedPrice: hasSuggestedPrice
               ? parseFloat(
                   (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
@@ -352,9 +356,10 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           );
           if (hasSuggestedPrice) {
             item.suggestedPrice = parseFloat(
-              (item.unitPrice * (1 + order.suggestedPriceRate / 100)).toFixed(
-                2,
-              ),
+              (
+                (item.unitPrice / item.unitMessure) *
+                (1 + order.suggestedPriceRate / 100)
+              ).toFixed(2),
             );
           }
         } else if (decrease !== undefined) {
@@ -363,16 +368,20 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           );
           if (hasSuggestedPrice) {
             item.suggestedPrice = parseFloat(
-              (item.unitPrice * (1 - order.suggestedPriceRate / 100)).toFixed(
-                2,
-              ),
+              (
+                (item.unitPrice / item.unitMessure) *
+                (1 - order.suggestedPriceRate / 100)
+              ).toFixed(2),
             );
           }
         }
 
         if (suggestedPriceRate !== undefined) {
           item.suggestedPrice = parseFloat(
-            (item.unitPrice * (1 + suggestedPriceRate / 100)).toFixed(2),
+            (
+              (item.unitPrice / item.unitMessure) *
+              (1 + suggestedPriceRate / 100)
+            ).toFixed(2),
           );
         }
 
@@ -649,7 +658,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
     // Filtrado por número de factura
     if (invoiceNumber) {
-      match.invoiceNumber = { $regex: invoiceNumber, $options: 'i' };;
+      match.invoiceNumber = { $regex: invoiceNumber, $options: 'i' };
     }
 
     // Filtrado por rango de fechas
