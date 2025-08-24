@@ -350,26 +350,29 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       if (order.suggestedPriceRate) hasSuggestedPrice = true;
 
       for (const item of order.items) {
+        let newItemValue = 0;
         if (increase !== undefined) {
-          item.unitPrice = parseFloat(
+          newItemValue = parseFloat(
             (item.unitPrice * (1 + increase / 100)).toFixed(2),
           );
+          item.unitPrice = newItemValue;
           if (hasSuggestedPrice) {
             item.suggestedPrice = parseFloat(
               (
-                (item.unitPrice / item.unitMessure) *
+                (newItemValue / item.unitMessure) *
                 (1 + order.suggestedPriceRate / 100)
               ).toFixed(2),
             );
           }
         } else if (decrease !== undefined) {
-          item.unitPrice = parseFloat(
+          newItemValue = parseFloat(
             (item.unitPrice * (1 - decrease / 100)).toFixed(2),
           );
+          item.unitPrice = newItemValue;
           if (hasSuggestedPrice) {
             item.suggestedPrice = parseFloat(
               (
-                (item.unitPrice / item.unitMessure) *
+                (newItemValue / item.unitMessure) *
                 (1 - order.suggestedPriceRate / 100)
               ).toFixed(2),
             );
