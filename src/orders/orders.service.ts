@@ -373,7 +373,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             item.suggestedPrice = parseFloat(
               (
                 (newItemValue / item.unitMessure) *
-                (1 - order.suggestedPriceRate / 100)
+                (1 + order.suggestedPriceRate / 100)
               ).toFixed(2),
             );
           }
