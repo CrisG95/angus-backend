@@ -110,6 +110,16 @@ export class Order {
     required: false,
   })
   suggestedPriceRate: number; // <- nuevo campo
+
+  @Prop({
+    required: true,
+  })
+  seller: string;
+
+  @Prop({
+    required: true,
+  })
+  sellCity: string;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

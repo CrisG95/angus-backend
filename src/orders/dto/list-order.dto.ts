@@ -53,6 +53,14 @@ export class ListOrderDto {
   readonly invoiceNumber?: string;
 
   @IsOptional()
+  @IsString()
+  readonly sellCity?: string;
+
+  @IsOptional()
+  @IsString()
+  readonly seller?: string;
+
+  @IsOptional()
   @IsISO8601() // Valida que sea una fecha en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss.sssZ)
   readonly dateFrom?: string; // Fecha de inicio para filtrar createdAt
 

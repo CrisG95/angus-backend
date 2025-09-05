@@ -51,6 +51,12 @@ import { InvoiceCounterService } from '@orders/invoice-counter.service';
 import { ReportDto } from './dto/report.dto';
 import { PatchOrderDto } from './dto/patch-order.dto';
 
+import {
+  calculateDecrease,
+  calculateIncrease,
+  calculateSuggestedPrice,
+} from '@helpers/calculate.helper';
+
 @Injectable()
 export class OrdersService extends BaseCrudService<OrderDocument> {
   //private readonly logger = new Logger(OrdersService.name);
@@ -169,6 +175,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           changeHistory: [initialChange],
           subTotal: roundDecimal(subTotal),
           totalAmount,
+          seller: user,
+          sellCity: dto.sellCity,
         };
 
         const [orderDoc] = await this.orderModel.create([newOrderData], {
@@ -327,14 +335,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
   ): Promise<any> {
     const { increase, decrease, suggestedPriceRate } = dto;
 
-    if (
-      increase === undefined &&
-      decrease === undefined &&
-      suggestedPriceRate === undefined
-    ) {
-      throw new BadRequestException('No values provided for price adjustment');
-    }
-
     const session = await this.connection.startSession();
 
     return session.withTransaction(async (session) => {
@@ -343,88 +343,45 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         throw new NotFoundException(`Order with id ${id} not found`);
       }
 
-      let newSubTotal = 0;
+      const hasSuggestedPrice = order.suggestedPriceRate ? true : false;
+      const suggestedPriceRateExistent = order.suggestedPriceRate
+        ? order.suggestedPriceRate
+        : null;
 
-      let hasSuggestedPrice = false;
-
-      if (order.suggestedPriceRate) hasSuggestedPrice = true;
-
-      for (const item of order.items) {
-        let newItemValue = 0;
-        if (increase !== undefined) {
-          newItemValue = parseFloat(
-            (item.unitPrice * (1 + increase / 100)).toFixed(2),
-          );
-          item.unitPrice = newItemValue;
-          if (hasSuggestedPrice) {
-            item.suggestedPrice = parseFloat(
-              (
-                (newItemValue / item.unitMessure) *
-                (1 + order.suggestedPriceRate / 100)
-              ).toFixed(2),
-            );
-          }
-        } else if (decrease !== undefined) {
-          newItemValue = parseFloat(
-            (item.unitPrice * (1 - decrease / 100)).toFixed(2),
-          );
-          item.unitPrice = newItemValue;
-          if (hasSuggestedPrice) {
-            item.suggestedPrice = parseFloat(
-              (
-                (newItemValue / item.unitMessure) *
-                (1 + order.suggestedPriceRate / 100)
-              ).toFixed(2),
-            );
-          }
-        }
-
-        if (suggestedPriceRate !== undefined) {
-          item.suggestedPrice = parseFloat(
-            (
-              (item.unitPrice / item.unitMessure) *
-              (1 + suggestedPriceRate / 100)
-            ).toFixed(2),
-          );
-        }
-
-        newSubTotal += item.quantity * item.unitPrice;
-      }
-
-      const newTotal = roundDecimal(newSubTotal);
       const changes = [];
-      const updateOps: any = {
-        items: order.items,
-        subTotal: roundDecimal(newSubTotal),
-        totalAmount: newTotal,
-      };
 
-      if (increase !== undefined) {
+      let updateOps;
+
+      if (increase) {
+        updateOps = calculateIncrease(
+          increase,
+          order.items,
+          hasSuggestedPrice,
+          suggestedPriceRateExistent,
+        );
         changes.push({
-          field: 'Ajuste de precio (%)',
+          field: `Ajuste de precio % ${increase}`,
           before: order.totalAmount.toString(),
-          after: newTotal.toString(),
+          after: updateOps.totalAmount.toString(),
         });
-        updateOps.increasePercentaje = increase;
       }
 
-      if (decrease !== undefined) {
+      if (decrease) {
+        updateOps = calculateDecrease(decrease, order.totalAmount);
         changes.push({
-          field: 'Descuento aplicado (%)',
+          field: `Descuento aplicado % ${decrease}`,
           before: order.totalAmount.toString(),
-          after: newTotal.toString(),
+          after: updateOps.totalAmount.toString(),
         });
-        updateOps.discountPercentaje = decrease;
-        updateOps.discountAmount = roundDecimal(order.totalAmount - newTotal);
       }
 
-      if (suggestedPriceRate !== undefined) {
+      if (suggestedPriceRate) {
+        updateOps = calculateSuggestedPrice(suggestedPriceRate, order.items);
         changes.push({
-          field: 'Precio sugerido (%)',
-          before: order.suggestedPriceRate?.toString() ?? 'N/A',
+          field: `Precio sugerido % ${suggestedPriceRate}`,
+          before: suggestedPriceRateExistent?.toString() ?? 'N/A',
           after: suggestedPriceRate.toString(),
         });
-        updateOps.suggestedPriceRate = suggestedPriceRate;
       }
 
       if (changes.length) {
@@ -648,6 +605,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       invoiceNumber,
       dateFrom,
       dateTo,
+      seller,
+      sellCity,
       sortBy = 'createdAt',
       sortOrder = 'desc',
     } = filters;
@@ -662,6 +621,16 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     // Filtrado por número de factura
     if (invoiceNumber) {
       match.invoiceNumber = { $regex: invoiceNumber, $options: 'i' };
+    }
+
+    // Filtrado por ciudad de venta
+    if (sellCity) {
+      match.sellCity = { $regex: sellCity, $options: 'i' };
+    }
+
+    // Filtrado por vendedor
+    if (seller) {
+      match.seller = { $regex: seller, $options: 'i' };
     }
 
     // Filtrado por rango de fechas
@@ -714,6 +683,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
                 increasePercentaje: 1,
                 invoiceNumber: 1,
                 suggestedPriceRate: 1,
+                seller: 1,
+                sellCity: 1,
                 'clientId.name': 1,
                 'clientId.email': 1,
                 'clientId.phoneNumber': 1,
