@@ -176,7 +176,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           subTotal: roundDecimal(subTotal),
           totalAmount,
           seller: user,
-          sellCity: dto.sellCity,
+          sellCity: dto.sellCity ?? 'ESQUEL',
         };
 
         const [orderDoc] = await this.orderModel.create([newOrderData], {

@@ -6,6 +6,7 @@ import {
   IsNumber,
   Min,
   IsString,
+  IsOptional,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -29,6 +30,6 @@ export class CreateOrderDto {
   items: OrderItemDto[];
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   sellCity: string;
 }

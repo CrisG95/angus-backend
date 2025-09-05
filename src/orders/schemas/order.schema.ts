@@ -117,7 +117,7 @@ export class Order {
   seller: string;
 
   @Prop({
-    required: true,
+    required: false,
   })
   sellCity: string;
 }
