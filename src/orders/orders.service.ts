@@ -350,9 +350,48 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       const changes = [];
 
-      let updateOps;
+      let updateOps: any;
 
-      if (increase) {
+      // Pseudo-rollback: aumento 0% -> revertir aumento vigente
+      if (
+        increase === 0 &&
+        order.increasePercentaje &&
+        order.increasePercentaje > 0
+      ) {
+        const prevIncrease = order.increasePercentaje;
+        let newSubTotal = 0;
+
+        for (const item of order.items) {
+          const basePrice = item.unitPrice / (1 + prevIncrease / 100);
+          const newUnitPrice = roundDecimal(basePrice);
+          item.unitPrice = newUnitPrice;
+
+          if (hasSuggestedPrice && suggestedPriceRateExistent !== null) {
+            // Recalcular precio sugerido en base al nuevo unitPrice
+            const suggested =
+              (newUnitPrice / item.unitMessure) *
+              (1 + suggestedPriceRateExistent / 100);
+            item.suggestedPrice = roundDecimal(suggested);
+          }
+
+          newSubTotal += item.quantity * item.unitPrice;
+        }
+
+        const newTotal = roundDecimal(newSubTotal);
+
+        updateOps = {
+          items: order.items,
+          subTotal: newSubTotal,
+          totalAmount: newTotal,
+          $unset: { increasePercentaje: '' },
+        };
+
+        changes.push({
+          field: `Reversión aumento realizado % ${suggestedPriceRateExistent}`,
+          before: order.totalAmount.toString(),
+          after: newTotal.toString(),
+        });
+      } else if (increase) {
         updateOps = calculateIncrease(
           increase,
           order.items,
@@ -366,7 +405,32 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
       }
 
-      if (decrease) {
+      // Pseudo-rollback: descuento 0% -> revertir descuento vigente
+      if (
+        decrease === 0 &&
+        order.discountPercentaje &&
+        order.discountPercentaje > 0
+      ) {
+        // En el flujo actual, subTotal representa el monto previo al último descuento.
+        const restoredTotal = roundDecimal(order.subTotal);
+        // Merge con updateOps previo si existe
+        if (!updateOps) {
+          updateOps = {} as any;
+        }
+        updateOps.subTotal = order.subTotal;
+        updateOps.totalAmount = restoredTotal;
+        // Unset de campos de descuento para que el front no renderice comprobante de descuento
+        updateOps.$unset = {
+          ...(updateOps.$unset || {}),
+          discountAmount: '',
+          discountPercentaje: '',
+        };
+        changes.push({
+          field: `Reversión descuento realizado % ${order.discountPercentaje}`,
+          before: order.totalAmount.toString(),
+          after: restoredTotal.toString(),
+        });
+      } else if (decrease) {
         updateOps = calculateDecrease(decrease, order.totalAmount);
         changes.push({
           field: `Descuento aplicado % ${decrease}`,
@@ -382,6 +446,11 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           before: suggestedPriceRateExistent?.toString() ?? 'N/A',
           after: suggestedPriceRate.toString(),
         });
+      }
+
+      if (!updateOps) {
+        // Nada para actualizar (p.ej., se envió 0% sin ajuste previo): devolver la orden actual
+        return order.toObject();
       }
 
       if (changes.length) {
