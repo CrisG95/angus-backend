@@ -8,6 +8,7 @@ import {
   UseGuards,
   Param,
   Patch,
+  Res,
 } from '@nestjs/common';
 
 import { AuthGuard } from '@nestjs/passport';
@@ -23,14 +24,16 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   ListOrderDto,
-  UpdateOrderStatusDto,
-  UpdatePaymentStatusDto,
-  CreateInvoiceFromOrderDto,
-  InvoiceEmailDto,
+  PatchOrderDto,
+  ReportDto,
+  //UpdateOrderStatusDto,
+  //UpdatePaymentStatusDto,
+  //CreateInvoiceFromOrderDto,
+  //InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ValidateObjectIdPipe } from '@common/pipes/validate-object-id.pipes';
-import { ReportDto } from './dto/report.dto';
+//import { ReportDto } from './dto/report.dto';
 
 @Controller('orders')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -55,47 +58,61 @@ export class OrdersController {
     return this.ordersService.updateOrder(id, updateOrderDto, user.email);
   }
 
-  @Patch(':id/status')
-  async updateStatus(
+  @Patch(':id')
+  async adjustPrices(
     @Param('id', ValidateObjectIdPipe) id: string,
-    @Body() dto: UpdateOrderStatusDto,
+    @Body() dto: PatchOrderDto,
     @User() user: UserPayload,
   ): Promise<OrderDocument> {
-    return this.ordersService.changeOrderStatus(id, dto.status, user.email);
+    return this.ordersService.adjustPrices(id, dto, user.email);
   }
 
-  @Patch(':id/payment-status')
-  async updatePaymentStatus(
-    @Param('id', ValidateObjectIdPipe) id: string,
-    @Body() dto: UpdatePaymentStatusDto,
-    @User() user: UserPayload,
-  ): Promise<OrderDocument> {
-    return this.ordersService.changePaymentStatus(
-      id,
-      dto.paymentStatus,
-      user.email,
-    );
-  }
+  //@Patch(':id/status')
+  //async updateStatus(
+  //  @Param('id', ValidateObjectIdPipe) id: string,
+  //  @Body() dto: UpdateOrderStatusDto,
+  //  @User() user: UserPayload,
+  //): Promise<OrderDocument> {
+  //  return this.ordersService.changeOrderStatus(id, dto.status, user.email);
+  //}
 
-  @Post('invoice')
-  async createInvoice(
-    @Body() dto: CreateInvoiceFromOrderDto,
-    @User() user: UserPayload,
-  ) {
-    return this.ordersService.createInvoice({ ...dto, user: user.email });
-  }
+  //@Patch(':id/payment-status')
+  //async updatePaymentStatus(
+  //  @Param('id', ValidateObjectIdPipe) id: string,
+  //  @Body() dto: UpdatePaymentStatusDto,
+  //  @User() user: UserPayload,
+  //): Promise<OrderDocument> {
+  //  return this.ordersService.changePaymentStatus(
+  //    id,
+  //    dto.paymentStatus,
+  //    user.email,
+  //  );
+  //}
 
-  @Post('invoice/email')
-  async sendInvoiceByEmail(
-    @Body() dto: InvoiceEmailDto,
-    @User() user: UserPayload,
-  ) {
-    return this.ordersService.sendInvoiceEmail({ ...dto, user: user.email });
-  }
+  //@Post('invoice')
+  //async createInvoice(
+  //  @Body() dto: CreateInvoiceFromOrderDto,
+  //  @User() user: UserPayload,
+  //) {
+  //  return this.ordersService.createInvoice({ ...dto, user: user.email });
+  //}
+
+  //@Post('invoice/email')
+  //async sendInvoiceByEmail(
+  //  @Body() dto: InvoiceEmailDto,
+  //  @User() user: UserPayload,
+  //) {
+  //  return this.ordersService.sendInvoiceEmail({ ...dto, user: user.email });
+  //}
 
   @Get('invoice/report')
   async getInvoiceReport(@Query() filters: ReportDto) {
     return this.ordersService.getInvoiceReport(filters);
+  }
+
+  @Get('excel')
+  async downloadExcel(@Query() filters: ReportDto, @Res() res: any) {
+    return this.ordersService.exportOrdersToExcel(filters, res);
   }
 
   @Get()

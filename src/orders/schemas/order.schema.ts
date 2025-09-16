@@ -1,10 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types, Schema as MongooseSchema } from 'mongoose';
-import {
-  OrderPaymentStatusEnum,
-  OrderStatusEnum,
-} from '../enums/order-status.enum';
-import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
+//import {
+//  OrderPaymentStatusEnum,
+//  OrderStatusEnum,
+//} from '../enums/order-status.enum';
+//import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
 
 export type OrderDocument = Order & Document;
 
@@ -32,6 +32,12 @@ export class OrderItem {
 
   @Prop({ required: true, type: Number })
   unitPrice: number;
+
+  @Prop({ required: true, type: Number })
+  unitMessure: number;
+
+  @Prop({ required: false, type: Number })
+  suggestedPrice?: number;
 }
 
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
@@ -44,19 +50,19 @@ export class Order {
   @Prop({ type: [OrderItemSchema], required: true })
   items: OrderItem[];
 
-  @Prop({
-    required: true,
-    enum: OrderStatusEnum,
-    default: OrderStatusEnum.EN_PROCESO,
-  })
-  status: string;
+  //@Prop({
+  //  required: true,
+  //  enum: OrderStatusEnum,
+  //  default: OrderStatusEnum.EN_PROCESO,
+  //})
+  //status: string;
 
-  @Prop({
-    required: true,
-    enum: OrderPaymentStatusEnum,
-    default: OrderPaymentStatusEnum.NO_FACTURADO,
-  })
-  paymentStatus: string;
+  //@Prop({
+  //  required: true,
+  //  enum: OrderPaymentStatusEnum,
+  //  default: OrderPaymentStatusEnum.NO_FACTURADO,
+  //})
+  //paymentStatus: string;
 
   @Prop({ required: true, type: Number })
   totalAmount: number;
@@ -67,18 +73,18 @@ export class Order {
   @Prop({ type: [{ type: Object }] })
   changeHistory?: ChangeHistory[];
 
-  @Prop({
-    required: false,
-    default: null,
-  })
-  pdfUrl: string;
+  //@Prop({
+  //  required: false,
+  //  default: null,
+  //})
+  //pdfUrl: string;
 
-  @Prop({
-    required: true,
-    enum: PdfGenerationStatus,
-    default: PdfGenerationStatus.PENDING,
-  })
-  pdfStatus: string;
+  //@Prop({
+  //  required: true,
+  //  enum: PdfGenerationStatus,
+  //  default: PdfGenerationStatus.PENDING,
+  //})
+  //pdfStatus: string;
 
   @Prop({
     required: false,
@@ -99,11 +105,26 @@ export class Order {
     required: false,
   })
   discountAmount: number;
+
+  @Prop({
+    required: false,
+  })
+  suggestedPriceRate: number; // <- nuevo campo
+
+  @Prop({
+    required: true,
+  })
+  seller: string;
+
+  @Prop({
+    required: false,
+  })
+  sellCity: string;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
 
 OrderSchema.index({ createdAt: -1 });
-OrderSchema.index({ status: 1, createdAt: -1 });
+//OrderSchema.index({ status: 1, createdAt: -1 });
 OrderSchema.index({ clientId: 1, createdAt: -1 });
-OrderSchema.index({ paymentStatus: 1 });
+//OrderSchema.index({ paymentStatus: 1 });

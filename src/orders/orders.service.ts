@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
-  Logger,
+  //Logger,
 } from '@nestjs/common';
 import { InjectModel, InjectConnection } from '@nestjs/mongoose';
 import {
@@ -14,7 +14,9 @@ import {
   FilterQuery,
   PipelineStage,
 } from 'mongoose';
-import { isNil } from 'lodash';
+//import { isNil } from 'lodash';
+import * as ExcelJS from 'exceljs';
+import { Response } from 'express';
 
 import { Order, OrderDocument, OrderItem } from '@orders/schemas/order.schema';
 
@@ -22,45 +24,52 @@ import {
   CreateOrderDto,
   UpdateOrderDto,
   ListOrderDto,
-  CreateInvoiceFromOrderDto,
-  InvoiceEmailDto,
+  //CreateInvoiceFromOrderDto,
+  //InvoiceEmailDto,
 } from '@orders/dto/index';
 
 import { ProductDocument } from '@products/schemas/product.schema';
-import {
-  OrderPaymentStatusEnum,
-  OrderStatusEnum,
-} from '@orders/enums/order-status.enum';
+//import {
+//  OrderPaymentStatusEnum,
+//  OrderStatusEnum,
+//} from '@orders/enums/order-status.enum';
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface';
 import { roundDecimal } from '@common/functions/round.function';
 
 import { ProductsService } from '@products/products.service';
 import { ClientsService } from '@clients/clients.service';
 import { BaseCrudService } from '@common/services/base-crud.service';
-import { SendGridService } from '@SendGrid/sendgrid.service';
+//import { SendGridService } from '@SendGrid/sendgrid.service';
 
-import { generateChangeHistory } from '@helpers/history.helper';
+//import { generateChangeHistory } from '@helpers/history.helper';
 import { ERROR_MESSAGES } from '@common/errors/error-messages';
-import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
+//import { PdfGenerationStatus } from '@orders/enums/pdf-generation-status.enum';
 
-import { S3Service } from '@common/services/s3.service';
-import { PDFService } from '@common/services/pdf.service';
+//import { S3Service } from '@common/services/s3.service';
+//import { PDFService } from '@common/services/pdf.service';
 import { InvoiceCounterService } from '@orders/invoice-counter.service';
 import { ReportDto } from './dto/report.dto';
+import { PatchOrderDto } from './dto/patch-order.dto';
+
+import {
+  calculateDecrease,
+  calculateIncrease,
+  calculateSuggestedPrice,
+} from '@helpers/calculate.helper';
 
 @Injectable()
 export class OrdersService extends BaseCrudService<OrderDocument> {
-  private readonly logger = new Logger(OrdersService.name);
+  //private readonly logger = new Logger(OrdersService.name);
 
   constructor(
     @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly productsService: ProductsService,
     private readonly clientsService: ClientsService,
-    private readonly s3Service: S3Service,
-    private readonly pdfService: PDFService,
+    //private readonly s3Service: S3Service,
+    //private readonly pdfService: PDFService,
     private readonly invoiceCounterService: InvoiceCounterService,
-    private readonly sendGridService: SendGridService,
+    //private readonly sendGridService: SendGridService,
   ) {
     super(orderModel);
   }
@@ -112,6 +121,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             productId: new Types.ObjectId(itemDto.productId), // Asegurar ObjectId
             quantity: itemDto.quantity,
             unitPrice, // Guardar precio unitario histórico
+            unitMessure: Number(product.unitMessure ?? 1),
           });
 
           subTotal += itemDto.quantity * unitPrice;
@@ -153,14 +163,20 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
           changes: [{ field: 'create', before: '', after: 'Order created' }],
         };
 
+        const invoiceNumber =
+          await this.invoiceCounterService.getNextInvoiceNumber();
+
         const newOrderData = {
           clientId: new Types.ObjectId(dto.clientId),
           items: orderItems, // Usar el array mapeado con precios
-          status: OrderStatusEnum.EN_PROCESO, // Estado inicial por defecto
-          paymentStatus: OrderPaymentStatusEnum.NO_FACTURADO, // Estado de pago inicial
+          //status: OrderStatusEnum.EN_PROCESO, // Estado inicial por defecto
+          //paymentStatus: OrderPaymentStatusEnum.NO_FACTURADO, // Estado de pago inicial
+          invoiceNumber,
           changeHistory: [initialChange],
           subTotal: roundDecimal(subTotal),
           totalAmount,
+          seller: user,
+          sellCity: dto.sellCity ?? 'ESQUEL',
         };
 
         const [orderDoc] = await this.orderModel.create([newOrderData], {
@@ -191,31 +207,14 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       // 1) Traer la orden completa + cliente IVA
       const order = await this.findById(orderId, {
         session,
-        populate: {
-          path: 'clientId',
-          select: 'ivaCondition',
-        },
+        populate: { path: 'clientId', select: 'ivaCondition' },
       });
-      //const client = order.clientId as unknown as ClientDocument;
-
-      // 2) Validar estado
-      if (
-        [
-          OrderStatusEnum.FACTURADO,
-          OrderStatusEnum.CANCELADO,
-          OrderStatusEnum.ENTREGADO,
-        ].includes(order.status as any)
-      ) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.ORDERS.INVALID_STATUS_TERMINAL_TRANSITION(
-            order.status,
-          ),
-        );
-      }
 
       // 3) Comparar y ajustar items + stock
-      let newItems = order.items;
-      let newSubTotal = order.subTotal;
+      let newItems;
+      let newSubTotal = 0;
+      let hasSuggestedPrice = false;
+      if (order.suggestedPriceRate) hasSuggestedPrice = true;
 
       if (dto.items) {
         // 3.a) calcular ajustes de stock
@@ -231,27 +230,51 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         );
         const products = await this.productsService.find(
           { _id: { $in: allIds } },
-          {
-            session,
-          },
+          { session },
         );
         const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
-        // 3.c) aplicar ajustes atómicos
+        // 3.c) validar stock suficiente antes de aplicar ajustes
+        for (const [productId, adjustment] of adjustments.entries()) {
+          if (adjustment > 0) {
+            // aumento en cantidad => requiere stock
+            const product = productMap.get(productId);
+            if (!product) {
+              throw new NotFoundException(
+                ERROR_MESSAGES.PRODUCTS.NOT_FOUND(productId),
+              );
+            }
+            if (product.stock < adjustment) {
+              throw new ConflictException(
+                ERROR_MESSAGES.PRODUCTS.INSUFFICIENT_STOCK(product.name) +
+                  ERROR_MESSAGES.ORDERS.REQUIRED_AVAILABLE(
+                    adjustment,
+                    product.stock,
+                  ),
+              );
+            }
+          }
+        }
+
+        // 3.d) aplicar ajustes atómicos
         await this.applyStockAdjustments(adjustments, session);
 
-        // 3.d) reconstruir items + subtotal
+        // 3.e) reconstruir items + subtotal
         newItems = dto.items.map((item) => {
-          const orig = order.items.find(
-            (o) => o.productId.toString() === item.productId,
-          );
-          const price =
-            orig?.unitPrice ?? productMap.get(item.productId)!.priceSell;
+          const price = productMap.get(item.productId)!.priceSell;
           newSubTotal += item.quantity * price;
           return {
             productId: new Types.ObjectId(item.productId),
             quantity: item.quantity,
             unitPrice: price,
+            unitMessure: Number(
+              productMap.get(item.productId)!.unitMessure ?? 1,
+            ),
+            suggestedPrice: hasSuggestedPrice
+              ? parseFloat(
+                  (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
+                )
+              : undefined,
           };
         });
       }
@@ -260,21 +283,11 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       // 5) Generar historial de cambios
       const changes = [];
-
-      // 5.a) campos simples: status, paymentStatus, invoiced, etc.
-      const simpleChange = generateChangeHistory(
-        order.toObject(),
-        dto,
-        userEmail,
-      );
-      if (simpleChange) changes.push(...simpleChange.changes);
-
-      // 5.b) items y totales
       if (dto.items) {
         changes.push({
           field: 'items',
-          before: JSON.stringify(order.items),
-          after: JSON.stringify(newItems),
+          before: order.items,
+          after: newItems,
         });
       }
       if (roundDecimal(order.subTotal) !== roundDecimal(newSubTotal)) {
@@ -297,7 +310,6 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         items: newItems,
         subTotal: roundDecimal(newSubTotal),
         totalAmount: newTotal,
-        ...dto, // status, paymentStatus, invoiced si venían en el DTO
       };
       if (changes.length) {
         updateOps.$push = {
@@ -307,6 +319,151 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
 
       // 7) Aplicar el update con nuestro genérico
       const updated = await this.findOneAndUpdate({ _id: orderId }, updateOps, {
+        session,
+        returnNew: true,
+        lean: true,
+      });
+
+      return updated;
+    });
+  }
+
+  async adjustPrices(
+    id: string,
+    dto: PatchOrderDto,
+    userEmail: string,
+  ): Promise<any> {
+    const { increase, decrease, suggestedPriceRate } = dto;
+
+    const session = await this.connection.startSession();
+
+    return session.withTransaction(async (session) => {
+      const order = await this.orderModel.findById(id).session(session);
+      if (!order) {
+        throw new NotFoundException(`Order with id ${id} not found`);
+      }
+
+      const hasSuggestedPrice = order.suggestedPriceRate ? true : false;
+      const suggestedPriceRateExistent = order.suggestedPriceRate
+        ? order.suggestedPriceRate
+        : null;
+
+      const changes = [];
+
+      let updateOps: any;
+
+      // Pseudo-rollback: aumento 0% -> revertir aumento vigente
+      if (
+        increase === 0 &&
+        order.increasePercentaje &&
+        order.increasePercentaje > 0
+      ) {
+        const prevIncrease = order.increasePercentaje;
+        let newSubTotal = 0;
+
+        for (const item of order.items) {
+          const basePrice = item.unitPrice / (1 + prevIncrease / 100);
+          const newUnitPrice = roundDecimal(basePrice);
+          item.unitPrice = newUnitPrice;
+
+          if (hasSuggestedPrice && suggestedPriceRateExistent !== null) {
+            // Recalcular precio sugerido en base al nuevo unitPrice
+            const suggested =
+              (newUnitPrice / item.unitMessure) *
+              (1 + suggestedPriceRateExistent / 100);
+            item.suggestedPrice = roundDecimal(suggested);
+          }
+
+          newSubTotal += item.quantity * item.unitPrice;
+        }
+
+        const newTotal = roundDecimal(newSubTotal);
+
+        updateOps = {
+          items: order.items,
+          subTotal: newSubTotal,
+          totalAmount: newTotal,
+          $unset: { increasePercentaje: '' },
+        };
+
+        changes.push({
+          field: `Reversión aumento realizado % ${suggestedPriceRateExistent}`,
+          before: order.totalAmount.toString(),
+          after: newTotal.toString(),
+        });
+      } else if (increase) {
+        updateOps = calculateIncrease(
+          increase,
+          order.items,
+          hasSuggestedPrice,
+          suggestedPriceRateExistent,
+        );
+        changes.push({
+          field: `Ajuste de precio % ${increase}`,
+          before: order.totalAmount.toString(),
+          after: updateOps.totalAmount.toString(),
+        });
+      }
+
+      // Pseudo-rollback: descuento 0% -> revertir descuento vigente
+      if (
+        decrease === 0 &&
+        order.discountPercentaje &&
+        order.discountPercentaje > 0
+      ) {
+        // En el flujo actual, subTotal representa el monto previo al último descuento.
+        const restoredTotal = roundDecimal(order.subTotal);
+        // Merge con updateOps previo si existe
+        if (!updateOps) {
+          updateOps = {} as any;
+        }
+        updateOps.subTotal = order.subTotal;
+        updateOps.totalAmount = restoredTotal;
+        // Unset de campos de descuento para que el front no renderice comprobante de descuento
+        updateOps.$unset = {
+          ...(updateOps.$unset || {}),
+          discountAmount: '',
+          discountPercentaje: '',
+        };
+        changes.push({
+          field: `Reversión descuento realizado % ${order.discountPercentaje}`,
+          before: order.totalAmount.toString(),
+          after: restoredTotal.toString(),
+        });
+      } else if (decrease) {
+        updateOps = calculateDecrease(decrease, order.totalAmount);
+        changes.push({
+          field: `Descuento aplicado % ${decrease}`,
+          before: order.totalAmount.toString(),
+          after: updateOps.totalAmount.toString(),
+        });
+      }
+
+      if (suggestedPriceRate) {
+        updateOps = calculateSuggestedPrice(suggestedPriceRate, order.items);
+        changes.push({
+          field: `Precio sugerido % ${suggestedPriceRate}`,
+          before: suggestedPriceRateExistent?.toString() ?? 'N/A',
+          after: suggestedPriceRate.toString(),
+        });
+      }
+
+      if (!updateOps) {
+        // Nada para actualizar (p.ej., se envió 0% sin ajuste previo): devolver la orden actual
+        return order.toObject();
+      }
+
+      if (changes.length) {
+        updateOps.$push = {
+          changeHistory: {
+            date: new Date(),
+            user: userEmail,
+            changes,
+          },
+        };
+      }
+
+      const updated = await this.findOneAndUpdate({ _id: id }, updateOps, {
         session,
         returnNew: true,
         lean: true,
@@ -347,6 +504,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
 
     const stockIncreases: { productId: string; amount: number }[] = [];
+
     const stockDecreases: { productId: string; amount: number }[] = [];
 
     for (const [productId, diff] of adjustments) {
@@ -380,6 +538,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     }
   }
 
+  /*
   private allowedTransitions: Record<OrderStatusEnum, OrderStatusEnum[]> = {
     [OrderStatusEnum.EN_PROCESO]: [
       OrderStatusEnum.EN_PREPARACION,
@@ -503,6 +662,8 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     return updated;
   }
 
+  */
+
   async findAll(
     filters: ListOrderDto,
   ): Promise<PaginatedResult<OrderDocument>> {
@@ -510,24 +671,38 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       page = 1,
       limit = 20,
       clientId,
-      status,
-      paymentStatus,
       invoiceNumber,
       dateFrom,
       dateTo,
-      sortBy,
+      seller,
+      sellCity,
+      sortBy = 'createdAt',
       sortOrder = 'desc',
     } = filters;
 
     const match: FilterQuery<OrderDocument> = {};
 
+    // Filtrado por cliente
     if (clientId) {
       match.clientId = new Types.ObjectId(clientId);
     }
-    if (status) match.status = status;
-    if (paymentStatus) match.paymentStatus = paymentStatus;
-    if (invoiceNumber) match.invoiceNumber = invoiceNumber;
 
+    // Filtrado por número de factura
+    if (invoiceNumber) {
+      match.invoiceNumber = { $regex: invoiceNumber, $options: 'i' };
+    }
+
+    // Filtrado por ciudad de venta
+    if (sellCity) {
+      match.sellCity = { $regex: sellCity, $options: 'i' };
+    }
+
+    // Filtrado por vendedor
+    if (seller) {
+      match.seller = { $regex: seller, $options: 'i' };
+    }
+
+    // Filtrado por rango de fechas
     const dateConditions: any = {};
     if (dateFrom) dateConditions.$gte = new Date(dateFrom);
     if (dateTo) {
@@ -535,41 +710,18 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       end.setHours(23, 59, 59, 999);
       dateConditions.$lte = end;
     }
-    if (!isNil(dateConditions.$gte) || !isNil(dateConditions.$lte)) {
+
+    if (Object.keys(dateConditions).length) {
       match.createdAt = dateConditions;
     }
 
-    // Mapa de prioridad de status
-    const statusOrder: Record<string, number> = {
-      EN_PROCESO: 1,
-      EN_PREPARACION: 2,
-      ENTREGADO: 3,
-      FACTURADO: 4,
-      CANCELADO: 5,
+    // Ordenamiento dinámico
+    const sortStage = {
+      [sortBy]: sortOrder === 'asc' ? 1 : -1,
     };
-
-    const sortStage = status
-      ? { [sortBy]: sortOrder === 'desc' ? -1 : 1 }
-      : {
-          statusOrder: 1,
-          createdAt: -1, // orden secundario
-        };
 
     const pipeline: any[] = [
       { $match: match },
-      {
-        $addFields: {
-          statusOrder: {
-            $switch: {
-              branches: Object.entries(statusOrder).map(([key, value]) => ({
-                case: { $eq: ['$status', key] },
-                then: value,
-              })),
-              default: 999,
-            },
-          },
-        },
-      },
       { $sort: sortStage },
       {
         $facet: {
@@ -591,18 +743,17 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
             {
               $project: {
                 _id: 1,
-                status: 1,
-                paymentStatus: 1,
                 totalAmount: 1,
                 subTotal: 1,
-                pdfUrl: 1,
-                pdfStatus: 1,
                 createdAt: 1,
                 updatedAt: 1,
                 discountAmount: 1,
                 discountPercentaje: 1,
                 increasePercentaje: 1,
                 invoiceNumber: 1,
+                suggestedPriceRate: 1,
+                seller: 1,
+                sellCity: 1,
                 'clientId.name': 1,
                 'clientId.email': 1,
                 'clientId.phoneNumber': 1,
@@ -646,6 +797,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
     });
   }
 
+  /*
   async createInvoice({
     orderId,
     suggestionRate,
@@ -786,7 +938,9 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       await session.endSession();
     }
   }
+*/
 
+  /*
   async sendInvoiceEmail({
     orderId,
   }: InvoiceEmailDto & { user: string }): Promise<any> {
@@ -826,6 +980,113 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
       throw error;
     }
   }
+  */
+
+  async getInvoiceReport(filters: ReportDto) {
+    const today = new Date();
+    let start: Date;
+    let end: Date;
+
+    const { period, startDate, endDate } = filters;
+
+    switch (period) {
+      case 'DAILY':
+        start = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate(),
+        );
+        end = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + 1,
+        );
+        break;
+      case 'WEEKLY':
+        start = new Date(today);
+        start.setDate(today.getDate() - today.getDay());
+        end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        break;
+      case 'MONTHLY':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        break;
+      default:
+        start = startDate ? new Date(startDate) : new Date(0);
+        end = endDate ? new Date(endDate) : new Date();
+        break;
+    }
+
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          createdAt: { $gte: start, $lt: end },
+        },
+      },
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'clientId',
+          foreignField: '_id',
+          as: 'client',
+        },
+      },
+      { $unwind: '$client' },
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalOrders: { $sum: 1 },
+                totalAmount: { $sum: '$totalAmount' },
+                totalSubTotal: { $sum: '$subTotal' },
+              },
+            },
+          ],
+          topClients: [
+            {
+              $group: {
+                _id: '$client._id',
+                name: { $first: '$client.name' },
+                totalAmount: { $sum: '$totalAmount' },
+                ordersCount: { $sum: 1 },
+              },
+            },
+            { $sort: { totalAmount: -1 } },
+            { $limit: 5 },
+          ],
+        },
+      },
+    ];
+
+    const [result] = await this.orderModel.aggregate(pipeline).exec();
+
+    const totals = result.totals[0] || {
+      totalOrders: 0,
+      totalAmount: 0,
+      totalSubTotal: 0,
+    };
+
+    return {
+      period: period || 'custom',
+      range: { start, end },
+      totalOrders: totals.totalOrders,
+      financialSummary: {
+        totalAmount: Number(totals.totalAmount?.toFixed(2) || 0),
+        totalSubTotal: Number(totals.totalSubTotal?.toFixed(2) || 0),
+      },
+      topClients: result.topClients.map((c) => ({
+        name: c.name,
+        id: c._id,
+        totalAmount: Number(c.totalAmount.toFixed(2)),
+        ordersCount: c.ordersCount,
+      })),
+    };
+  }
+
+  /*
   async getInvoiceReport(filters: ReportDto) {
     const today = new Date();
     let start: Date;
@@ -887,27 +1148,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
               },
             },
           ],
-          byPaymentStatus: [
-            {
-              $match: { status: 'FACTURADO' },
-            },
-            {
-              $group: {
-                _id: '$paymentStatus',
-                count: { $sum: 1 },
-                total: { $sum: '$totalAmount' },
-                invoices: {
-                  $push: {
-                    pdfUrl: '$pdfUrl',
-                    total: '$totalAmount',
-                    createdAt: '$createdAt',
-                    clientName: '$client.name',
-                    invoiceNumber: '$invoiceNumber',
-                  },
-                },
-              },
-            },
-          ],
+
           topClients: [
             {
               $match: { status: 'FACTURADO' },
@@ -986,5 +1227,171 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         ordersCount: c.ordersCount,
       })),
     };
+  }
+  */
+
+  private getDateRange(period: string, startDate?: string, endDate?: string) {
+    const today = new Date();
+    let start: Date;
+    let end: Date;
+
+    switch (period) {
+      case 'DAILY':
+        start = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate(),
+        );
+        end = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + 1,
+        );
+        break;
+      case 'WEEKLY':
+        start = new Date(today);
+        start.setDate(today.getDate() - today.getDay());
+        end = new Date(start);
+        end.setDate(start.getDate() + 7);
+        break;
+      case 'MONTHLY':
+        start = new Date(today.getFullYear(), today.getMonth(), 1);
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        break;
+      default:
+        start = startDate ? new Date(startDate) : new Date(0);
+        end = endDate ? new Date(endDate) : new Date();
+        break;
+    }
+    return { start, end };
+  }
+
+  async exportOrdersToExcel(filters: ReportDto, res: Response) {
+    const { start, end } = this.getDateRange(
+      filters.period,
+      filters.startDate,
+      filters.endDate,
+    );
+
+    // Traemos órdenes con cliente y productos
+    const orders: any = await this.orderModel
+      .find({ createdAt: { $gte: start, $lt: end } })
+      .populate('clientId')
+      .populate('items.productId')
+      .lean();
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistema de Facturación';
+    workbook.created = new Date();
+
+    // Hoja 1: Resumen de órdenes
+    const ordersSheet = workbook.addWorksheet('Resumen de Órdenes');
+    ordersSheet.columns = [
+      { header: 'Factura', key: 'invoiceNumber', width: 12 },
+      { header: 'Fecha', key: 'createdAt', width: 15 },
+      { header: 'Cliente', key: 'clientName', width: 30 },
+      { header: 'CUIT', key: 'cuit', width: 18 },
+      { header: 'Condición IVA', key: 'ivaCondition', width: 15 },
+      { header: 'SubTotal', key: 'subTotal', width: 15 },
+      { header: 'Total', key: 'totalAmount', width: 15 },
+      { header: '% Aumento', key: 'increasePercentaje', width: 12 },
+      { header: '% Descuento', key: 'decreasePercentaje', width: 12 },
+      { header: '% Sugerido', key: 'suggestedPriceRate', width: 12 },
+    ];
+
+    orders.forEach((order) => {
+      ordersSheet.addRow({
+        invoiceNumber: order.invoiceNumber,
+        createdAt: order.createdAt.toISOString().split('T')[0],
+        clientName: order.clientId?.name || '',
+        cuit: order.clientId?.cuit || '',
+        ivaCondition: order.clientId?.ivaCondition || '',
+        subTotal: order.subTotal,
+        totalAmount: order.totalAmount,
+        increasePercentaje: order.increasePercentaje || '',
+        decreasePercentaje: order.decreasePercentaje || '',
+        suggestedPriceRate: order.suggestedPriceRate || '',
+      });
+    });
+
+    // Hoja 2: Detalle de ítems
+    const itemsSheet = workbook.addWorksheet('Detalle de Ítems');
+    itemsSheet.columns = [
+      { header: 'Factura', key: 'invoiceNumber', width: 12 },
+      { header: 'Fecha', key: 'createdAt', width: 15 },
+      { header: 'Cliente', key: 'clientName', width: 30 },
+      { header: 'Producto', key: 'productName', width: 40 },
+      { header: 'Marca', key: 'brand', width: 20 },
+      { header: 'Cantidad', key: 'quantity', width: 10 },
+      { header: 'Precio Unit.', key: 'unitPrice', width: 15 },
+      { header: 'Precio Sugerido', key: 'suggestedPrice', width: 18 },
+    ];
+
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        itemsSheet.addRow({
+          invoiceNumber: order.invoiceNumber,
+          createdAt: order.createdAt.toISOString().split('T')[0],
+          clientName: order.clientId?.name || '',
+          productName: item.productId?.name || '',
+          brand: item.productId?.brand || '',
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          suggestedPrice: item.suggestedPrice,
+        });
+      });
+    });
+
+    const sheetProducts = workbook.addWorksheet('Productos vendidos');
+    sheetProducts.columns = [
+      { header: 'Producto', key: 'product', width: 30 },
+      { header: 'Cantidad total', key: 'quantity', width: 20 },
+      { header: 'Monto total', key: 'amount', width: 20 },
+    ];
+
+    const productMap: Record<
+      string,
+      { name: string; quantity: number; amount: number }
+    > = {};
+
+    orders.forEach((order) => {
+      order.items.forEach((item) => {
+        const prodName = item.productId?.name || 'Producto desconocido';
+        if (!productMap[prodName]) {
+          productMap[prodName] = { name: prodName, quantity: 0, amount: 0 };
+        }
+        productMap[prodName].quantity += item.quantity;
+        productMap[prodName].amount += item.quantity * item.unitPrice;
+      });
+    });
+
+    Object.values(productMap).forEach((prod) => {
+      sheetProducts.addRow({
+        product: prod.name,
+        quantity: prod.quantity,
+        amount: prod.amount,
+      });
+    });
+
+    const safeStart = start ? start.toISOString().split('T')[0] : 'sin_fecha';
+    const safeEnd = end ? end.toISOString().split('T')[0] : 'sin_fecha';
+
+    // Configuración de cabeceras para descarga
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="reporte_${safeStart}_${safeEnd}.xlsx"`,
+    );
+    //res.setHeader(
+    //  'Content-Disposition',
+    //  `attachment; filename="reporte_${new Date().toISOString().split('T')[0]}.xlsx"`,
+    //);
+
+    await workbook.xlsx.write(res);
+    res.end();
   }
 }
