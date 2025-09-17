@@ -263,18 +263,26 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         newItems = dto.items.map((item) => {
           const price = productMap.get(item.productId)!.priceSell;
           newSubTotal += item.quantity * price;
+          const product = productMap.get(item.productId);
+          const unitMessure = (() => {
+            const rawValue = product?.unitMessure;
+            const parsed = parseFloat(rawValue);
+            return isNaN(parsed) ? 1 : parsed;
+          })();
+
+          let suggestedPrice;
+          if (hasSuggestedPrice) {
+            suggestedPrice = roundDecimal(
+              (price / unitMessure) * (1 + order.suggestedPriceRate / 100),
+            );
+          }
+
           return {
             productId: new Types.ObjectId(item.productId),
             quantity: item.quantity,
             unitPrice: price,
-            unitMessure: Number(
-              productMap.get(item.productId)!.unitMessure ?? 1,
-            ),
-            suggestedPrice: hasSuggestedPrice
-              ? parseFloat(
-                  (price * (1 + order.suggestedPriceRate / 100)).toFixed(2),
-                )
-              : undefined,
+            unitMessure,
+            ...(hasSuggestedPrice && { suggestedPrice }),
           };
         });
       }
@@ -431,7 +439,7 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         };
 
         changes.push({
-          field: `Reversión aumento realizado % ${suggestedPriceRateExistent}`,
+          field: `Reversión aumento realizado % ${prevIncrease}`,
           before: order.totalAmount.toString(),
           after: newTotal.toString(),
         });
