@@ -279,7 +279,40 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
       }
 
-      const newTotal = roundDecimal(newSubTotal);
+      let newTotal = roundDecimal(newSubTotal);
+
+      // 6) Preparar el update inicial
+      const updateOps: any = {
+        items: newItems,
+        subTotal: roundDecimal(newSubTotal),
+        totalAmount: newTotal,
+      };
+
+      // Check if there's an increase percentage to apply
+      if (order.increasePercentaje) {
+        const increaseResult = calculateIncrease(
+          order.increasePercentaje,
+          newItems,
+          hasSuggestedPrice,
+          order.suggestedPriceRate ?? null,
+        );
+        newItems = increaseResult.items;
+        newTotal = increaseResult.totalAmount;
+        updateOps.items = newItems;
+        updateOps.totalAmount = newTotal;
+        updateOps.subTotal = newTotal;
+      }
+
+      // Check if there's a discount percentage to apply
+      if (order.discountPercentaje) {
+        const decreaseResult = calculateDecrease(
+          order.discountPercentaje,
+          newTotal,
+        );
+        newTotal = decreaseResult.totalAmount;
+        updateOps.totalAmount = newTotal;
+        updateOps.discountAmount = decreaseResult.discountAmount;
+      }
 
       // 5) Generar historial de cambios
       const changes = [];
@@ -305,12 +338,23 @@ export class OrdersService extends BaseCrudService<OrderDocument> {
         });
       }
 
-      // 6) Empaquetar el update
-      const updateOps: any = {
-        items: newItems,
-        subTotal: roundDecimal(newSubTotal),
-        totalAmount: newTotal,
-      };
+      // El updateOps ya está configurado arriba
+
+      // Add increase/discount percentage to history if they were applied
+      if (order.increasePercentaje) {
+        changes.push({
+          field: `Aumento aplicado %`,
+          before: 'N/A',
+          after: order.increasePercentaje.toString(),
+        });
+      }
+      if (order.discountPercentaje) {
+        changes.push({
+          field: `Descuento aplicado %`,
+          before: 'N/A',
+          after: order.discountPercentaje.toString(),
+        });
+      }
       if (changes.length) {
         updateOps.$push = {
           changeHistory: { date: new Date(), user: userEmail, changes },
